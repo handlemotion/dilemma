@@ -1,35 +1,78 @@
 {
   "name": "@dilemma/app",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Dilemma desktop app",
   "license": "AGPL-3.0-only",
+  "author": "Rodrigo Jiménez",
   "type": "module",
   "main": "dist/electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "vite build && node scripts/build-electron.mjs",
     "start": "electron .",
-    "typecheck": "tsc -p tsconfig.json && tsc -p electron/tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json && tsc -p electron/tsconfig.json",
+    "package": "pnpm run build && electron-builder --mac --dir",
+    "install-app": "pnpm run package && node scripts/install-app.mjs"
   },
-  "dependencies": {
+  "devDependencies": {
     "@base-ui/react": "^1.9.0",
     "@dilemma/core": "workspace:*",
     "@dilemma/io": "workspace:*",
     "@dilemma/solve": "workspace:*",
     "@dilemma/view": "workspace:*",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "zustand": "^5.1.0"
-  },
-  "devDependencies": {
     "@tailwindcss/vite": "^4.3.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
     "electron": "~44.11.6",
+    "electron-builder": "^26.18.1",
     "esbuild": "^0.28.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "tailwindcss": "^4.3.5",
-    "vite": "^8.4.0"
-  }
+    "vite": "^8.4.0",
+    "zustand": "^5.1.0"
+  },
+  "build": {
+    "appId": "com.handlemotion.dilemma",
+    "productName": "Dilemma",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "package.json"
+    ],
+    "npmRebuild": false,
+    "asar": true,
+    "mac": {
+      "target": [
+        "dir"
+      ],
+      "category": "public.app-category.graphics-design",
+      "identity": null
+    },
+    "fileAssociations": [
+      {
+        "ext": [
+          "glb",
+          "gltf"
+        ],
+        "name": "glTF character",
+        "role": "Viewer"
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "../../LICENSE",
+        "to": "LICENSE"
+      },
+      {
+        "from": "../../NOTICE.md",
+        "to": "NOTICE.md"
+      }
+    ]
+  },
+  "productName": "Dilemma"
 }

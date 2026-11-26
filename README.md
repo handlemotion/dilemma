@@ -23,6 +23,8 @@ pnpm dev
 
 Press ⌘O or drop a `.glb` or `.gltf` on the window. The camera moves the way Maya's does, Alt with the left, middle or right button turns, pans or zooms. On a trackpad a two-finger swipe turns and a pinch zooms. F frames the selection, Space plays, and the arrow keys step one frame. The Navigation menu in the toolbar switches the mouse buttons to Blender's layout or a trackpad-first one.
 
+To put it in Applications, run `pnpm install-app`. It builds the app, signs it ad-hoc since there's no developer certificate yet, and replaces `/Applications/Dilemma.app`. There are no automatic updates in v0, so to update you pull and run it again.
+
 `pnpm run check` runs the typecheck, lint, format check and tests, the same as CI. `pnpm fetch-assets` downloads a few skinned characters from the Khronos glTF sample assets for the import tests.
 
 ## License

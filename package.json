@@ -12,7 +12,8 @@
     "format:check": "oxfmt --check",
     "test": "vitest run",
     "fetch-assets": "node scripts/fetch-sample-assets.mjs",
-    "check": "pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test"
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run format:check && pnpm run test",
+    "install-app": "pnpm --filter @dilemma/app install-app"
   },
   "devDependencies": {
     "@types/node": "^24.19.0",

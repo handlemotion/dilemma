@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { Texture } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { fromGltf, guessFps } from './gltf.ts'
 import { syntheticGltf } from './fixtures.ts'
@@ -8,8 +9,17 @@ import { compareWithThree } from './testing.ts'
 
 const MM = 1e-3
 
+/**
+ * Node can't decode images, and the comparison only needs the skeleton and skinning, so
+ * every texture loads as a blank one.
+ */
 async function parse(data: string | ArrayBuffer, resourcePath = '') {
-  return new GLTFLoader().parseAsync(data, resourcePath)
+  const loader = new GLTFLoader()
+  loader.register(() => ({
+    name: 'BLANK_TEXTURES',
+    loadTexture: () => Promise.resolve(new Texture()),
+  }))
+  return loader.parseAsync(data, resourcePath)
 }
 
 describe('glTF import', () => {

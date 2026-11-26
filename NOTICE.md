@@ -1,46 +1,39 @@
 # Notice
 
-Dilemma is licensed under the GNU Affero General Public License, version 3 only
-(AGPL-3.0-only). See [LICENSE](LICENSE). Forks and hosted versions must publish
-their source under the same license.
+Dilemma is Copyright (C) 2026 Rodrigo Jiménez, licensed under the GNU Affero General Public License, version 3 only (AGPL-3.0-only). The full text is in [LICENSE](LICENSE). Forks and hosted versions have to publish their source under the same license.
 
-## Code taken from other projects
+## Code from Enclose
 
-Each file taken from another project keeps its original copyright line and is
-listed here, with where it came from, in the same pull request that adds it.
+Some files come from Enclose, Copyright (C) 2026 Glauber, AGPL-3.0-only, taken from [github.com/enclosedev/enclose](https://github.com/enclosedev/enclose) at commit `b2da08e`. Each one keeps that copyright line at the top and says what we changed. The Enclose name and mark don't come with its code, so we only use the name here and in those file headers, to say where the code is from.
 
-Taken from Enclose, Copyright (C) 2026 Glauber, AGPL-3.0-only, at
-[github.com/enclosedev/enclose](https://github.com/enclosedev/enclose) commit `b2da08e`.
-Each file keeps that copyright line and says what changed. The Enclose name and mark
-are not licensed with its code and are not used in Dilemma.
+Any file we take from another project gets a row here in the same pull request that adds it.
 
-| File in Dilemma                                                          | Taken from                                                      | Changes                                                                                                    |
-| ------------------------------------------------------------------------ | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `packages/view/src/platform.ts`                                          | `apps/desktop/src/lib/platform.ts`                              | none                                                                                                       |
-| `packages/view/src/scroll.ts`, `scroll.test.ts`                          | `apps/desktop/src/lib/scroll.ts`, `scroll.test.ts`              | import paths                                                                                               |
-| `packages/view/src/navigation.ts`, `navigation.test.ts`                  | `apps/desktop/src/lib/navigation.ts`, `navigation.test.ts`      | animation presets (Maya, Blender, trackpad), right drag may zoom, Maya Alt drags                           |
-| `packages/view/src/rig.ts`                                               | `apps/desktop/src/components/viewport/rig.tsx`                  | input handling only, on plain three.js and camera-controls; no flat views; turns about the selected joints |
-| `packages/app/src/preferences.ts`                                        | `apps/desktop/src/lib/preferences.ts`                           | navigation preferences only, Maya defaults                                                                 |
-| `packages/app/src/components/navigation-settings.tsx`                    | `apps/desktop/src/components/settings.tsx` (Navigation section) | a Base UI popover instead of a settings page                                                               |
-| `packages/app/electron/atomic.ts`, `atomic.test.ts`                      | `apps/desktop/electron/atomic.ts`, `atomic.test.ts`             | import path, temp folder name                                                                              |
-| `packages/app/electron/main.ts` (single-instance and open-file handling) | `apps/desktop/electron/main.ts`                                 | opens character files instead of links                                                                     |
+| File in Dilemma                                                             | Taken from                                                         | What we changed                                                                                                                     |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/view/src/platform.ts`                                             | `apps/desktop/src/lib/platform.ts`                                 | nothing                                                                                                                             |
+| `packages/view/src/scroll.ts`, `scroll.test.ts`                             | `apps/desktop/src/lib/scroll.ts`, `scroll.test.ts`                 | import paths                                                                                                                        |
+| `packages/view/src/navigation.ts`, `navigation.test.ts`                     | `apps/desktop/src/lib/navigation.ts`, `navigation.test.ts`         | presets for Maya, Blender and trackpads, a right drag can zoom, and Alt drags work like Maya's                                      |
+| `packages/view/src/rig.ts`                                                  | `apps/desktop/src/components/viewport/rig.tsx`                     | only the mouse and trackpad handling, on plain three.js and camera-controls, without flat views, turning around the selected joints |
+| `packages/app/src/preferences.ts`                                           | `apps/desktop/src/lib/preferences.ts`                              | only the navigation preferences, with Maya's buttons as the default                                                                 |
+| `packages/app/src/components/navigation-settings.tsx`                       | `apps/desktop/src/components/settings.tsx`, its Navigation section | a Base UI popover in the toolbar in place of a settings page                                                                        |
+| `packages/app/electron/atomic.ts`, `atomic.test.ts`                         | `apps/desktop/electron/atomic.ts`, `atomic.test.ts`                | import path and temp folder name                                                                                                    |
+| `packages/app/electron/main.ts`, the single-instance and open-file handling | `apps/desktop/electron/main.ts`                                    | it opens character files in place of links                                                                                          |
 
 ## Dependencies
 
-Runtime dependencies must be MIT, Apache-2.0, BSD, MPL-2.0, GPL-3.0 or
-AGPL-3.0. Anything else needs approval first.
+Runtime dependencies have to be MIT, Apache-2.0, BSD, MPL-2.0, GPL-3.0 or AGPL-3.0. Anything else needs an OK first.
 
-| Package          | License | Used for               |
-| ---------------- | ------- | ---------------------- |
-| three            | MIT     | Rendering, glTF import |
-| react, react-dom | MIT     | Panels and dialogs     |
-| @base-ui/react   | MIT     | UI primitives          |
-| zustand          | MIT     | UI state               |
-| electron         | MIT     | Desktop shell          |
-| tailwindcss      | MIT     | Styling (build time)   |
+| Package          | License | What we use it for                  |
+| ---------------- | ------- | ----------------------------------- |
+| three            | MIT     | rendering and glTF import           |
+| camera-controls  | MIT     | the viewport camera                 |
+| three-mesh-bvh   | MIT     | picking joints by clicking the mesh |
+| react, react-dom | MIT     | panels and menus                    |
+| @base-ui/react   | MIT     | UI parts like popovers and selects  |
+| zustand          | MIT     | UI state                            |
+| electron         | MIT     | the desktop shell                   |
+| tailwindcss      | MIT     | styling, at build time              |
 
-## Test assets
+## Test characters
 
-Test characters come from the Khronos glTF Sample Assets and are not stored in
-this repository. `pnpm fetch-assets` downloads them with each model's
-LICENSE.md into `fixtures/khronos/`.
+The skinned characters the import tests use come from the Khronos glTF Sample Assets and aren't in this repository. `pnpm fetch-assets` downloads them into `fixtures/khronos/`, each with its own LICENSE.md.

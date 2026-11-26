@@ -1,0 +1,26 @@
+name: Bug report
+description: Something broke or looks wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: file
+    attributes:
+      label: The character file
+      description: Attach the file if you can share it, or say where it came from (Mixamo, a Khronos sample, a rig out of Maya or Blender).
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: c8a558e
+  - type: input
+    id: system
+    attributes:
+      label: Mac model and macOS version
+      placeholder: MacBook Pro M3, macOS 26.1

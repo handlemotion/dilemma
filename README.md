@@ -1,27 +1,30 @@
 # Dilemma
 
-An open source desktop tool for 3D character animation. Drop in a skinned
-character, confirm the joints, start posing. Contacts are clips on the
-timeline, editing one key re-solves its neighbors, and the work returns to
-Maya and Blender as editable animation.
+Dilemma is an open source desktop app for animating 3D characters. You drop in a skinned character, confirm its joints and start posing with full-body IK, and the animation goes back to Maya or Blender as keys you can still edit.
 
-Status: milestone 1, load and look. macOS first.
+We're making it for the animators at our studio, Chow Mein. Every milestone ends with one of them using the build on a real character, so it changes a lot and it's macOS only for now.
 
-## Develop
+## What we're betting on
 
-Requires Node 24 and pnpm 11.
+Contacts live on the timeline. "Hand grips the cup from frame 20 to 48" is a clip you can drag and trim. Editing one key re-solves the keys around it, so when you drag a motion path the neighboring keys follow with a falloff you control. There's also no rigging step, Dilemma reads the skeleton and skin weights from the file and builds its own controls on top. And whatever you make goes back to Maya and Blender as animation on their own controls, so a team can keep working there.
+
+## Where it is now
+
+Right now it loads a skinned glTF, shows the mesh and skeleton, plays the clip that came in the file, and lets you pick joints in the viewport or the skeleton panel. Posing and keying on plain FK comes next, with save, undo and glTF export, then controls and full-body IK. Contacts, motion paths and the Maya and Blender bridges come after that.
+
+## Running it
+
+You need Node 24 and pnpm 11.
 
 ```sh
 pnpm install
-pnpm dev            # start the app
-pnpm run check      # typecheck, lint, format check, tests
-pnpm fetch-assets   # download the Khronos test characters
+pnpm dev
 ```
 
-In the app: ⌘O or drop a `.glb`/`.gltf`. Alt-drag orbits, middle-drag pans,
-Alt-right-drag or pinch zooms, a two-finger swipe orbits, Shift-swipe pans,
-F frames the selection. Space plays, arrow keys step a frame.
+Press ⌘O or drop a `.glb` or `.gltf` on the window. The camera moves the way Maya's does, Alt with the left, middle or right button turns, pans or zooms. On a trackpad a two-finger swipe turns and a pinch zooms. F frames the selection, Space plays, and the arrow keys step one frame. The Navigation menu in the toolbar switches the mouse buttons to Blender's layout or a trackpad-first one.
+
+`pnpm run check` runs the typecheck, lint, format check and tests, the same as CI. `pnpm fetch-assets` downloads a few skinned characters from the Khronos glTF sample assets for the import tests.
 
 ## License
 
-AGPL-3.0-only. See [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md).
+Dilemma is AGPL-3.0-only. If you ship a fork or run it as a service, you have to publish your source under the same license. Some of the code comes from Enclose, which is AGPL-3.0 too, and [NOTICE.md](NOTICE.md) lists which files and what we changed.

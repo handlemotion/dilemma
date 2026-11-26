@@ -1,0 +1,35 @@
+{
+  "name": "@dilemma/app",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Dilemma desktop app",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "main": "dist/electron/main.cjs",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "vite build && node scripts/build-electron.mjs",
+    "start": "electron .",
+    "typecheck": "tsc -p tsconfig.json && tsc -p electron/tsconfig.json"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.9.0",
+    "@dilemma/core": "workspace:*",
+    "@dilemma/io": "workspace:*",
+    "@dilemma/solve": "workspace:*",
+    "@dilemma/view": "workspace:*",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zustand": "^5.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "electron": "~44.11.6",
+    "esbuild": "^0.28.2",
+    "tailwindcss": "^4.3.5",
+    "vite": "^8.4.0"
+  }
+}

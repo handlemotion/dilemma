@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"]
+  },
+  "include": [
+    "packages/core/src/**/*.test.ts",
+    "packages/solve/src/**/*.test.ts",
+    "packages/io/src/**/*.test.ts",
+    "scripts/**/*.ts",
+    "vitest.*.ts",
+    "packages/io/src/fixtures.ts",
+    "packages/app/electron/**/*.test.ts",
+    "packages/view/src/**/*.test.ts"
+  ]
+}

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+out/
+release/
+fixtures/khronos/
+*.log
+.DS_Store
+.env*

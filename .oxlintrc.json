@@ -1,0 +1,164 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "import", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "ignorePatterns": ["**/dist/**", "**/out/**", "fixtures/**", "scripts/boundary-fixtures/**"],
+  "rules": {
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["**/packages/*/src/**", "../../*/src/**", "../../../*/src/**"],
+            "message": "Import other layers by package name (@dilemma/*), never by relative path."
+          }
+        ]
+      }
+    ],
+    "import/no-unassigned-import": [
+      "warn",
+      {
+        "allow": ["**/*.css"]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["packages/core/**", "packages/solve/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "react",
+                "message": "core and solve must not import React."
+              },
+              {
+                "name": "react-dom",
+                "message": "core and solve must not import React."
+              },
+              {
+                "name": "three",
+                "message": "core and solve must not import three.js."
+              },
+              {
+                "name": "electron",
+                "message": "core and solve must not import Electron."
+              }
+            ],
+            "patterns": [
+              {
+                "group": [
+                  "react/**",
+                  "react-dom/**",
+                  "three/**",
+                  "electron/**",
+                  "@dilemma/view",
+                  "@dilemma/io",
+                  "@dilemma/app"
+                ],
+                "message": "core and solve import nothing from React, three.js, Electron, or upper layers."
+              },
+              {
+                "group": ["node:*", "fs", "path", "os", "child_process"],
+                "message": "core and solve stay platform-free."
+              },
+              {
+                "group": ["**/packages/*/src/**", "../../*/src/**"],
+                "message": "Import other layers by package name (@dilemma/*), never by relative path."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/core/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "react",
+                "message": "core must not import React."
+              },
+              {
+                "name": "three",
+                "message": "core must not import three.js."
+              },
+              {
+                "name": "electron",
+                "message": "core must not import Electron."
+              },
+              {
+                "name": "@dilemma/solve",
+                "message": "core is the bottom layer: it imports no other package."
+              }
+            ],
+            "patterns": [
+              {
+                "group": [
+                  "react/**",
+                  "react-dom",
+                  "react-dom/**",
+                  "three/**",
+                  "electron/**",
+                  "@dilemma/*",
+                  "node:*",
+                  "fs",
+                  "path",
+                  "os",
+                  "child_process"
+                ],
+                "message": "core is the bottom layer: platform-free, no other package."
+              },
+              {
+                "group": ["**/packages/*/src/**", "../../*/src/**"],
+                "message": "Import other layers by package name (@dilemma/*), never by relative path."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/io/**", "packages/view/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "react",
+                "message": "Only app uses React."
+              },
+              {
+                "name": "electron",
+                "message": "Only app uses Electron."
+              },
+              {
+                "name": "@dilemma/app",
+                "message": "Imports only point down."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["react/**", "react-dom", "react-dom/**", "electron/**"],
+                "message": "Only app uses React and Electron."
+              },
+              {
+                "group": ["**/packages/*/src/**", "../../*/src/**"],
+                "message": "Import other layers by package name (@dilemma/*), never by relative path."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

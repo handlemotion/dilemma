@@ -54,7 +54,7 @@ export function Timeline() {
   )
 
   return (
-    <div className="flex h-full flex-col border-t border-line bg-panel">
+    <div className="flex h-full flex-col overflow-hidden rounded-xl bg-panel">
       <div className="flex h-9 shrink-0 items-center gap-3 border-b border-line px-3">
         <button
           type="button"

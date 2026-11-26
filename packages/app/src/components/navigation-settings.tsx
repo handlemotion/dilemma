@@ -21,14 +21,26 @@ export function NavigationSettings() {
   return (
     <Popover.Root>
       <Popover.Trigger
-        className="rounded px-2 py-1 text-muted hover:bg-raised hover:text-ink data-popup-open:bg-raised data-popup-open:text-ink"
+        className="flex h-7 w-7 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-ink data-popup-open:bg-raised data-popup-open:text-ink"
         title="Navigation"
+        aria-label="Navigation"
       >
-        Navigation
+        <svg
+          width="15"
+          height="15"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.3"
+          aria-hidden
+        >
+          <rect x="4" y="1.5" width="8" height="13" rx="4" />
+          <path d="M8 1.5v4.5M4 6h8" />
+        </svg>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Positioner sideOffset={6} align="end" className="z-50">
-          <Popover.Popup className="w-80 rounded-lg border border-line bg-panel p-3 text-[12px] text-ink shadow-2xl outline-none">
+          <Popover.Popup className="w-80 rounded-xl border border-line bg-panel p-3 text-[12px] text-ink shadow-2xl outline-none">
             <Rows />
           </Popover.Popup>
         </Popover.Positioner>
@@ -115,7 +127,7 @@ function Rows() {
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-1.5">
-      <h3 className="text-[11px] font-medium tracking-wider text-faint uppercase">{title}</h3>
+      <h3 className="font-semibold text-ink">{title}</h3>
       {children}
     </section>
   )

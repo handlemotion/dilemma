@@ -65,7 +65,7 @@ function createWindow(): BrowserWindow {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: '#1b1d21',
+    backgroundColor: '#0b0b0c',
     titleBarStyle: 'hiddenInset',
     show: false,
     webPreferences: {

@@ -1,10 +1,12 @@
 @import 'tailwindcss';
 
 @theme {
-  --color-canvas: #1b1d21;
-  --color-panel: #23262b;
-  --color-raised: #2c3036;
-  --color-line: #363b42;
+  /* The window is black, and each panel sits on it as a rounded island. */
+  --color-canvas: #0b0b0c;
+  --color-panel: #19191b;
+  --color-raised: #262629;
+  --color-line: #2e2e32;
+  --color-stage: #202023;
   --color-ink: #e6e8eb;
   --color-muted: #9aa1ab;
   --color-faint: #6b727c;

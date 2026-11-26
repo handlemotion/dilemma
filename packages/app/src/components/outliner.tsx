@@ -27,11 +27,11 @@ function CharacterTree({ character, selected }: { character: Character; selected
 
   return (
     <section>
-      <h3 className="truncate px-3 pt-2 pb-1 font-medium text-ink">
+      <h3 className="truncate px-3 pt-1 pb-1 text-muted">
         {character.name}
         <span className="ml-2 font-normal text-faint">{joints.length} joints</span>
       </h3>
-      <ul>
+      <ul className="px-1.5">
         {joints.map((joint, i) => (
           <li key={joint.id}>
             <button
@@ -44,12 +44,12 @@ function CharacterTree({ character, selected }: { character: Character; selected
                 )
                 editor.select(rest.length === selected.length ? [...selected, ref] : rest)
               }}
-              className={`block w-full truncate py-0.5 pr-3 text-left ${
+              className={`block w-full truncate rounded-md py-0.5 pr-3 text-left ${
                 isSelected(i)
                   ? 'bg-accent/15 text-accent'
                   : 'text-muted hover:bg-raised hover:text-ink'
               }`}
-              style={{ paddingLeft: 12 + depth[i]! * 10 }}
+              style={{ paddingLeft: 6 + depth[i]! * 10 }}
               title={joint.name}
             >
               {joint.name}

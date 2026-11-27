@@ -8,6 +8,10 @@ updates:
       dependencies:
         patterns: ['*']
         update-types: [minor, patch]
+    ignore:
+      # Matches the Node we run (24). Move it with the Node version, not before.
+      - dependency-name: '@types/node'
+        update-types: [version-update:semver-major]
   - package-ecosystem: github-actions
     directory: /
     schedule:

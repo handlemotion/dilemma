@@ -28,7 +28,8 @@ There are five packages under `packages/`, and a package only imports the ones b
 8. Key times are integer frames against the clip's fps, never float seconds.
 9. A full pose solve for a 70-joint humanoid takes under 2 ms. A test measures it.
 10. UI state lives in zustand. Document state never does.
-11. Tint selected UI items by multiplying a translucent brand-blue layer over the item and its contents. Keep text, icons, and controls visible under the tint.
+11. Tint selected rows, timeline keys, and menu items by multiplying a translucent brand-blue layer over the item and its contents. Keep text, icons, and controls visible under the tint.
+12. Action buttons and idle mode tools sit flat and borderless. Show their button fill on hover. Give the active viewport tool a solid brand-blue fill and white icon. Use the filled field style for property inputs.
 
 ## License and reuse
 

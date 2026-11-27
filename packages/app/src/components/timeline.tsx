@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { selectJoints } from '../animation.ts'
 import { editor, useEditorState } from '../editor.ts'
+import { Icon } from '../icons/central.tsx'
 import { PREVIEW_END, PREVIEW_FPS, useUi, type TimelineRange } from '../ui-store.ts'
 import {
   PREVIEW_ROW,
@@ -34,7 +35,14 @@ export function Timeline() {
 }
 
 type Drag = { pointer: number; anchor: number } & (
-  | { mode: 'select'; rowId: TimelineRowId }
+  | {
+      mode: 'select'
+      rowId: TimelineRowId
+      keyFrame: number | undefined
+      x: number
+      y: number
+      moved: boolean
+    }
   | { mode: 'scrub' }
   | { mode: 'start' | 'end' | 'move'; workStart: number; workEnd: number }
 )
@@ -101,9 +109,9 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
       previous.setActiveTimelineRow(null)
 
     function clearSelection(event: KeyboardEvent) {
-      if (event.key !== 'Escape' || event.target === timecodeField.current) return
+      if (event.key !== 'Escape' || event.target instanceof HTMLInputElement) return
       const ui = useUi.getState()
-      if (ui.transformDraft) return
+      if (ui.transformDraft || ui.viewportMarquee) return
       const drag = gesture.current
       if (drag?.mode !== 'select' && ui.timelineRange?.clipId !== clipId) return
       event.preventDefault()
@@ -168,6 +176,24 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
     return clamp(Math.round(start + fraction * (end - start)))
   }
 
+  function keyAt(row: TimelineRow, clientX: number, clientY: number, rect: DOMRect) {
+    const index = rows.indexOf(row)
+    const scrollTop = index === 0 ? 0 : (trackList.current?.scrollTop ?? 0)
+    const mid = HEADER + (index + 0.5) * TRACK_HEIGHT - scrollTop
+    if (Math.abs(clientY - rect.top - mid) > 8) return undefined
+    const scale = Math.max(1, rect.width - PAD * 2) / Math.max(1, end - start)
+    let nearest: number | undefined
+    let distance = 6
+    for (const key of row.frames) {
+      const offset = Math.abs(clientX - rect.left - PAD - (key - start) * scale)
+      if (offset <= distance) {
+        nearest = key
+        distance = offset
+      }
+    }
+    return nearest
+  }
+
   function modeAt(clientX: number, clientY: number, rect: DOMRect) {
     const row = clientY - rect.top
     if (row >= HEADER) {
@@ -230,7 +256,9 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
 
   const rangeDescription =
     range && rangeRow
-      ? ` ${rangeRow.name || 'Preview'} range, frames ${Math.min(range.anchor, range.edge)} to ${Math.max(range.anchor, range.edge)}.`
+      ? range.anchor === range.edge
+        ? ` ${rangeRow.name} key selected at frame ${range.anchor}.`
+        : ` ${rangeRow.name || 'Preview'} range, frames ${Math.min(range.anchor, range.edge)} to ${Math.max(range.anchor, range.edge)}.`
       : ''
 
   return (
@@ -290,17 +318,17 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
               disabled={frame === start}
               onClick={() => seek(start)}
             >
-              <path d="M2 2v8m7-8-5 4 5 4z" />
+              <Icon name="skip" className="-scale-x-100" />
             </TransportButton>
             <TransportButton
               label={playing ? 'Pause' : 'Play'}
               shortcut="Space"
               onClick={() => setPlaying(!playing)}
             >
-              {playing ? <path d="M3 2h2v8H3zm4 0h2v8H7z" /> : <path d="M3 2v8l7-4z" />}
+              <Icon name={playing ? 'pause' : 'play'} />
             </TransportButton>
             <TransportButton label="Last frame" disabled={frame === end} onClick={() => seek(end)}>
-              <path d="M10 2v8M3 2l5 4-5 4z" />
+              <Icon name="skip" />
             </TransportButton>
           </div>
         </div>
@@ -326,18 +354,11 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
                 onKeyDown={(e) => handleTimelineKey(e, summary.id)}
                 title={summary.name}
               >
-                <svg
-                  aria-hidden="true"
-                  className={`size-3 shrink-0 text-faint ${expanded ? 'rotate-90' : ''}`}
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.75"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="m6 4 4 4-4 4" />
-                </svg>
+                <Icon
+                  name="chevronRight"
+                  size={14}
+                  className={`shrink-0 text-faint ${expanded ? 'rotate-90' : ''}`}
+                />
                 <span className="truncate">{summary.name}</span>
               </button>
             ) : (
@@ -377,7 +398,7 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
         ref={canvas}
         tabIndex={0}
         aria-label="Timeline frames"
-        aria-description={`Frame ${frame}.${rangeDescription} Use arrows to seek, Shift and arrows to select, comma and period to jump between keys, or brackets to set work area bounds.`}
+        aria-description={`Frame ${frame}.${rangeDescription} Click a key and press Delete to remove it. Use arrows to seek, Shift and arrows to select, comma and period to jump between keys, or brackets to set work area bounds.`}
         className="block h-full min-h-0 w-full touch-none cursor-crosshair bg-timeline outline-none"
         onKeyDown={(e) => handleTimelineKey(e, keyboardRow.id)}
         onWheel={(e) => {
@@ -400,7 +421,16 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
           )
           const pointer = e.pointerId
           if (mode === 'select' && row) {
-            gesture.current = { pointer, anchor, mode, rowId: row.id }
+            gesture.current = {
+              pointer,
+              anchor,
+              mode,
+              rowId: row.id,
+              keyFrame: keyAt(row, e.clientX, e.clientY, rect),
+              x: e.clientX,
+              y: e.clientY,
+              moved: false,
+            }
             activateRow(row.id)
             selectRange(row.id, anchor, anchor)
             seek(anchor)
@@ -425,7 +455,8 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
           const setWorkArea = useUi.getState().setWorkArea
           switch (drag.mode) {
             case 'select':
-              selectRange(drag.rowId, drag.anchor, edge)
+              drag.moved ||= Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 4
+              if (drag.moved) selectRange(drag.rowId, drag.anchor, edge)
               break
             case 'scrub':
               seek(edge)
@@ -449,8 +480,19 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
         onPointerUp={(e) => {
           const drag = gesture.current
           if (drag?.mode !== 'select' || drag.pointer !== e.pointerId) return
-          const edge = frameAt(e.clientX, e.currentTarget.getBoundingClientRect())
-          selectRange(drag.rowId, drag.anchor, edge)
+          const moved = drag.moved || Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 4
+          if (!moved && drag.keyFrame !== undefined) {
+            useUi.getState().setTimelineRange({
+              clipId,
+              rowId: drag.rowId,
+              anchor: drag.keyFrame,
+              edge: drag.keyFrame,
+            })
+            seek(drag.keyFrame)
+          } else if (moved) {
+            const edge = frameAt(e.clientX, e.currentTarget.getBoundingClientRect())
+            selectRange(drag.rowId, drag.anchor, edge)
+          }
         }}
         onPointerCancel={(e) => {
           const drag = gesture.current
@@ -495,7 +537,9 @@ function ClipSelect({ clips, value }: { clips: Clip[]; value: string | null }) {
       items={clips.map((c) => ({ value: c.id, label: c.name }))}
     >
       <Select.Trigger aria-label="Clip" title="Choose clip" className="shell-icon">
-        <Select.Icon aria-hidden="true">▾</Select.Icon>
+        <Select.Icon aria-hidden="true">
+          <Icon name="chevronDown" size={14} />
+        </Select.Icon>
       </Select.Trigger>
       <Select.Portal>
         <Select.Positioner
@@ -636,7 +680,16 @@ function draw(
       ctx.fillRect(0, top, width, TRACK_HEIGHT)
       ctx.restore()
     }
-    if (selectedRange) {
+    if (selectedRange && selectedRange.anchor === selectedRange.edge) {
+      const center = x(selectedRange.anchor)
+      const padding = size + 4
+      ctx.save()
+      ctx.globalCompositeOperation = 'multiply'
+      ctx.fillStyle = blue
+      ctx.globalAlpha = 0.35
+      ctx.fillRect(center - padding, mid - padding, padding * 2 + 1, padding * 2 + 1)
+      ctx.restore()
+    } else if (selectedRange) {
       const left = x(Math.min(selectedRange.anchor, selectedRange.edge))
       const right = x(Math.max(selectedRange.anchor, selectedRange.edge))
       const span = Math.max(1, right - left)
@@ -696,17 +749,7 @@ function TransportButton(props: {
       aria-label={props.label}
       title={props.shortcut ? `${props.label} (${props.shortcut})` : props.label}
     >
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 12 12"
-        fill="currentColor"
-        stroke="currentColor"
-        strokeWidth=".7"
-        aria-hidden
-      >
-        {props.children}
-      </svg>
+      {props.children}
     </button>
   )
 }

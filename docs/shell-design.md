@@ -4,8 +4,8 @@ Start with the general shell. It establishes where animators look for tools, sel
 
 ## Workspace
 
-- One connected frame. The top toolbar owns project actions. Use F to frame the selection in the viewport. The resizable right dock uses Outliner and Inspector tabs for hierarchy and selection details.
-- The timeline runs edge to edge beneath the viewport and dock. The timeline is 81 px tall by default. The transport and timecode share a header with the frame ruler and thin draggable work area. The action row, combined ruler and work-area header, and each track row are 40 px tall. Playback loops over the work area. Double-click the work area strip to reset it. Drag on the ruler to scrub or in the track area to select a frame range. Before a clip is loaded the ruler shows frames 0–120. Contact ranges will need room for labels and trim handles.
+- One connected frame. The top rail holds action buttons. Transform tools float at the bottom center of the viewport. Use F to frame the selection in the viewport. The independently resizable Outliner sits to the left of the viewport. The Inspector sits on the right and shows the selected joints’ properties.
+- The timeline runs edge to edge beneath the viewport and side panels. The timeline is 81 px tall by default. The transport and timecode share a header with the frame ruler and thin draggable work area. The action row, combined ruler and work-area header, and each track row are 40 px tall. Playback loops over the work area. Double-click the work area strip to reset it. Drag on the ruler to scrub or in the track area to select a frame range. Before a clip is loaded the ruler shows frames 0–120. Contact ranges will need room for labels and trim handles.
 - Use one-pixel dividers between docked regions. Use rounded corners on controls and floating surfaces.
 
 ## Palette
@@ -13,18 +13,18 @@ Start with the general shell. It establishes where animators look for tools, sel
 | Role                  | Value     | Use                                                        |
 | --------------------- | --------- | ---------------------------------------------------------- |
 | Window                | `#f5f6f8` | Behind shell surfaces                                      |
-| Panel                 | `#ffffff` | Toolbar, dock, and timeline ruler                          |
-| Timeline and viewport | `#f6f7fa` | Tracks and viewport background                             |
+| Panel                 | `#ffffff` | Tools, side panels, and timeline ruler                     |
+| Timeline and viewport | `#f6f7fa` | Main header, tracks, and viewport background               |
 | Control               | `#f0f1f4` | Button and frame readout fills                             |
 | Control hover         | `#e7e9ee` | Enabled button hover                                       |
 | Divider               | `#e9eaf0` | Panel boundaries                                           |
 | Text                  | `#22242b` | Primary labels and playhead                                |
 | Muted text            | `#565b68` | Secondary labels                                           |
 | Faint text            | `#656b79` | Low-emphasis labels                                        |
-| Brand blue            | `#4c94fa` | Primary actions, focus, timeline keys, and range selection |
+| Brand blue            | `#0c8ce9` | Primary actions, focus, timeline keys, and range selection |
 | Amber                 | `#fab94c` | Selected viewport joints                                   |
 
-Keep button fills visible at rest and when disabled. On hover, enabled icon buttons use a deeper gray fill and a darker icon. Dim the icon on disabled actions. Use white text on blue primary actions.
+Action buttons and idle mode tools sit flat and borderless. Show their button fill on hover. Give the active viewport tool a solid blue fill and white icon. Use the filled field style for property inputs, and dim disabled actions.
 
 ## Density and alignment
 

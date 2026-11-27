@@ -39,6 +39,23 @@ export interface ViewCharacter {
 export interface ViewportEvents extends TransformEvents {
   /** A click in the viewport. `null` means empty space. The app turns this into a selection change. */
   pick(joint: JointRef | null, additive: boolean): void
+  pickBox(joints: JointRef[], additive: boolean): void
+  marquee(rect: ViewportMarquee | null): void
+}
+
+export interface ViewportMarquee {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+interface SelectionPointer {
+  id: number
+  x: number
+  y: number
+  additive: boolean
+  dragging: boolean
 }
 
 export interface TransformPreview {
@@ -76,7 +93,7 @@ export class Viewport {
   private state: EditorState | null = null
   private raf = 0
   private resize: ResizeObserver
-  private down: { x: number; y: number } | null = null
+  private selectionPointer: SelectionPointer | null = null
   private frameTimes: number[] = []
 
   constructor(
@@ -98,9 +115,18 @@ export class Viewport {
     this.scene.add(grid)
 
     this.rig = new Rig(this.camera, canvas, () => this.selectionCenter())
-    this.gizmo = new TransformGizmo(this.scene, this.camera, canvas, events)
+    this.gizmo = new TransformGizmo(this.scene, this.camera, canvas, {
+      ...events,
+      transformStart: (joint) => {
+        this.clearSelectionPointer()
+        events.transformStart(joint)
+      },
+    })
     canvas.addEventListener('pointerdown', this.onPointerDown)
+    canvas.addEventListener('pointermove', this.onPointerMove)
     canvas.addEventListener('pointerup', this.onPointerUp)
+    canvas.addEventListener('pointercancel', this.onPointerCancel)
+    canvas.addEventListener('lostpointercapture', this.onPointerCancel)
     this.resize = new ResizeObserver(() => this.onResize())
     this.resize.observe(canvas)
     this.onResize()
@@ -112,8 +138,12 @@ export class Viewport {
     this.resize.disconnect()
     this.rig.dispose()
     this.gizmo.dispose()
+    this.cancelSelection()
     this.canvas.removeEventListener('pointerdown', this.onPointerDown)
+    this.canvas.removeEventListener('pointermove', this.onPointerMove)
     this.canvas.removeEventListener('pointerup', this.onPointerUp)
+    this.canvas.removeEventListener('pointercancel', this.onPointerCancel)
+    this.canvas.removeEventListener('lostpointercapture', this.onPointerCancel)
     for (const entry of this.entries.values()) this.remove(entry)
     this.renderer.dispose()
   }
@@ -144,8 +174,16 @@ export class Viewport {
 
   cancelTransform(): boolean {
     const cancelled = this.gizmo.cancel()
-    if (cancelled) this.down = null
+    if (cancelled) this.clearSelectionPointer()
     return cancelled
+  }
+
+  cancelSelection(): boolean {
+    const pointer = this.selectionPointer
+    if (!pointer) return false
+    this.clearSelectionPointer()
+    if (this.canvas.hasPointerCapture(pointer.id)) this.canvas.releasePointerCapture(pointer.id)
+    return true
   }
 
   /** Frame the selected joints, or every character when nothing is selected. */
@@ -272,22 +310,88 @@ export class Viewport {
   }
 
   private onPointerDown = (event: PointerEvent) => {
-    this.down =
-      event.button === 0 && !event.altKey && !this.gizmo.dragging
-        ? { x: event.clientX, y: event.clientY }
-        : null
+    if (!event.isPrimary || event.button !== 0 || event.altKey || this.gizmo.dragging) return
+    this.selectionPointer = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      additive: event.shiftKey,
+      dragging: false,
+    }
+    this.canvas.setPointerCapture(event.pointerId)
+  }
+
+  private onPointerMove = (event: PointerEvent) => {
+    const pointer = this.selectionPointer
+    if (pointer?.id !== event.pointerId || this.gizmo.dragging || this.rig.active) return
+    if (!pointer.dragging && Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) <= 4)
+      return
+    pointer.dragging = true
+    this.events.marquee(this.selectionRectangle(pointer, event))
   }
 
   private onPointerUp = (event: PointerEvent) => {
-    const down = this.down
-    this.down = null
-    if (!down || this.rig.active || this.gizmo.dragging) return
-    if (Math.hypot(event.clientX - down.x, event.clientY - down.y) > 4) return
+    const pointer = this.selectionPointer
+    if (pointer?.id !== event.pointerId || event.button !== 0) return
+    this.clearSelectionPointer()
+    if (this.rig.active || this.gizmo.dragging) return
+    if (pointer.dragging || Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 4) {
+      this.events.pickBox(
+        this.jointsInRectangle(this.selectionRectangle(pointer, event)),
+        pointer.additive,
+      )
+    } else {
+      const rect = this.canvas.getBoundingClientRect()
+      this.events.pick(
+        this.pickJoint(event.clientX - rect.left, event.clientY - rect.top),
+        pointer.additive,
+      )
+    }
+  }
+
+  private onPointerCancel = (event: PointerEvent) => {
+    if (this.selectionPointer?.id === event.pointerId) this.clearSelectionPointer()
+  }
+
+  private clearSelectionPointer(): void {
+    if (this.selectionPointer?.dragging) this.events.marquee(null)
+    this.selectionPointer = null
+  }
+
+  private selectionRectangle(pointer: SelectionPointer, event: PointerEvent): ViewportMarquee {
     const rect = this.canvas.getBoundingClientRect()
-    this.events.pick(
-      this.pickJoint(event.clientX - rect.left, event.clientY - rect.top),
-      event.shiftKey,
-    )
+    const x = (value: number) => Math.min(rect.width, Math.max(0, value - rect.left))
+    const y = (value: number) => Math.min(rect.height, Math.max(0, value - rect.top))
+    const x1 = x(pointer.x)
+    const x2 = x(event.clientX)
+    const y1 = y(pointer.y)
+    const y2 = y(event.clientY)
+    return {
+      x: Math.min(x1, x2),
+      y: Math.min(y1, y2),
+      width: Math.abs(x2 - x1),
+      height: Math.abs(y2 - y1),
+    }
+  }
+
+  private jointsInRectangle(rect: ViewportMarquee): JointRef[] {
+    const selected: JointRef[] = []
+    const width = this.canvas.clientWidth
+    const height = this.canvas.clientHeight
+    const p = new Vector3()
+    for (const entry of this.entries.values()) {
+      for (let joint = 0; joint < entry.skeleton.count; joint++) {
+        const offset = joint * WORLD_STRIDE + 12
+        const world = entry.pose.world
+        p.set(world[offset]!, world[offset + 1]!, world[offset + 2]!).project(this.camera)
+        if (p.z < -1 || p.z > 1) continue
+        const x = ((p.x + 1) * width) / 2
+        const y = ((1 - p.y) * height) / 2
+        if (x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height)
+          selected.push({ characterId: entry.character.id, joint })
+      }
+    }
+    return selected
   }
 
   /** Nearest joint to a point in CSS pixels, within PICK_RADIUS_PX, preferring the one closer to the camera. */

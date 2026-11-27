@@ -6,6 +6,7 @@ import {
   removeCharacter,
   setRotationKey,
   setTransformKey,
+  setTransformKeys,
 } from './commands.ts'
 import { emptyDocument, type Character, type Clip } from './document.ts'
 import { Editor } from './editor.ts'
@@ -103,6 +104,24 @@ describe('Editor', () => {
     expect(editor.getState().doc).toEqual(keyed)
     expect(editor.undo()).toBe(true)
     expect(editor.getState().doc.clips[0]?.tracks[0]?.translations?.values).toEqual([1, 2, 3])
+  })
+
+  it('keys several selected joints at one frame as one undoable edit', () => {
+    const editor = new Editor()
+    editor.run(addCharacter(character('a'), [clip('walk', 'a')]))
+    const before = editor.getState().doc
+    editor.run(
+      setTransformKeys('walk', 5, [
+        { joint: 0, key: { channel: 'translations', value: [1, 2, 3] } },
+        { joint: 2, key: { channel: 'translations', value: [4, 5, 6] } },
+      ]),
+    )
+    expect(editor.getState().doc.clips[0]?.tracks).toEqual([
+      { joint: 0, translations: { frames: [5], values: [1, 2, 3] } },
+      { joint: 2, translations: { frames: [5], values: [4, 5, 6] } },
+    ])
+    expect(editor.undo()).toBe(true)
+    expect(editor.getState().doc).toEqual(before)
   })
 
   it('undoes the first transform key and its newly created clip together', () => {

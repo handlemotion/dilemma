@@ -1,0 +1,7 @@
+<!-- Artwork © David & Storm GbR – Iconists. Licensed under https://iconists.co/license. -->
+<!-- IconChevronDownMedium from @central-icons-react/round-outlined-radius-3-stroke-1.5@1.2.39. -->
+<svg xmlns="http://www.w3.org/2000/svg" data-icon-sprite="" aria-hidden="true" width="0" height="0">
+  <symbol id="outliner-chevron" viewBox="0 0 24 24" fill="none">
+    <path d="M5.75 9.5L12 15.75L18.25 9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+  </symbol>
+</svg>

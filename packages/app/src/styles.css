@@ -14,8 +14,8 @@
   --color-muted: #565b68;
   --color-faint: #656b79;
   --color-accent: var(--color-primary);
-  --color-primary: #4c94fa;
-  --color-primary-hover: #3988f4;
+  --color-primary: #0c8ce9;
+  --color-primary-hover: #087bce;
   --selection-tint-opacity: 0.18;
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
@@ -53,7 +53,11 @@ body {
 
 @layer components {
   .shell-icon {
-    @apply inline-flex size-[26px] shrink-0 items-center justify-center rounded-md bg-control p-1 text-muted enabled:hover:bg-control-hover enabled:hover:text-ink disabled:text-faint;
+    @apply inline-flex size-[26px] shrink-0 items-center justify-center rounded-md p-1 text-muted enabled:hover:bg-control enabled:hover:text-ink disabled:text-faint;
+  }
+
+  .shell-tool[aria-pressed='true'] {
+    @apply bg-primary text-white enabled:hover:bg-primary-hover enabled:hover:text-white;
   }
 
   .shell-icon:disabled svg {
@@ -61,11 +65,42 @@ body {
   }
 
   .shell-primary {
-    @apply inline-flex h-[26px] shrink-0 items-center justify-center rounded-md bg-primary px-2 font-semibold text-white enabled:hover:bg-primary-hover;
+    @apply inline-flex h-[26px] shrink-0 items-center justify-center rounded-md px-2 font-semibold text-ink enabled:hover:bg-primary enabled:hover:text-white disabled:text-faint;
   }
 
   .shell-action {
-    @apply inline-flex h-[26px] shrink-0 items-center justify-center rounded-md bg-control px-2 text-muted enabled:hover:bg-control-hover enabled:hover:text-ink disabled:text-faint;
+    @apply inline-flex h-[26px] shrink-0 items-center justify-center rounded-md px-2 text-muted enabled:hover:bg-control enabled:hover:text-ink disabled:text-faint;
+  }
+
+  .inspector-field {
+    @apply grid h-6 min-w-0 grid-cols-[24px_minmax(0,1fr)_24px] items-center rounded-md bg-control;
+  }
+
+  .inspector-scrub {
+    @apply col-start-3 row-start-1 grid h-full cursor-ew-resize touch-none place-items-center;
+  }
+
+  .inspector-scrub::before {
+    @apply h-2.5 w-0.5 rounded-full bg-faint opacity-65;
+    content: '';
+  }
+
+  .inspector-scrub:hover::before,
+  .inspector-field[data-scrubbing] .inspector-scrub::before {
+    opacity: 1;
+  }
+
+  .inspector-field[data-scrubbing] .inspector-scrub::before {
+    background: var(--color-accent);
+  }
+
+  .inspector-field input {
+    @apply col-start-2 row-start-1 h-full min-w-0 rounded-md bg-transparent px-1 text-right text-ink tabular-nums outline-none;
+  }
+
+  .inspector-field input:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
   }
 
   .selection-tint:is([data-tinted], [data-selected], [aria-pressed='true'])::after {

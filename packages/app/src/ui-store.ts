@@ -1,5 +1,5 @@
 import type { JointRef, TransformKey } from '@dilemma/core'
-import type { TransformMode } from '@dilemma/view'
+import type { TransformMode, ViewportMarquee } from '@dilemma/view'
 import type { CharacterAssets } from '@dilemma/io'
 import { create } from 'zustand'
 import type { TimelineRowId } from './components/timeline-tracks.ts'
@@ -30,9 +30,11 @@ export interface TransformDraft {
 interface UiState {
   outlinerFocus: string | null
   setOutlinerFocus(focus: string | null): void
-  dockTab: 'outliner' | 'inspector'
-  setDockTab(dockTab: UiState['dockTab']): void
-  panelSizes: Partial<Record<'dock' | 'timeline', number>>
+  outlinerSearchOpen: boolean
+  setOutlinerSearchOpen(open: boolean): void
+  inspectorExpansion: Partial<Record<string, boolean>>
+  setInspectorExpanded(joint: string, expanded: boolean): void
+  panelSizes: Partial<Record<'outliner' | 'inspector' | 'timeline', number>>
   setPanelSize(panel: keyof UiState['panelSizes'], size: number | undefined): void
   workArea: { clipId: string | null; start: number; end: number } | null
   setWorkArea(workArea: UiState['workArea']): void
@@ -50,6 +52,8 @@ interface UiState {
   loading: string | null
   error: string | null
   projectPath: string | null
+  viewportMarquee: ViewportMarquee | null
+  setViewportMarquee(rect: ViewportMarquee | null): void
   transformMode: TransformMode
   setTransformMode(mode: TransformMode): void
   transformDraft: TransformDraft | null
@@ -69,8 +73,11 @@ interface UiState {
 export const useUi = create<UiState>((set) => ({
   outlinerFocus: null,
   setOutlinerFocus: (outlinerFocus) => set({ outlinerFocus }),
-  dockTab: 'outliner',
-  setDockTab: (dockTab) => set({ dockTab }),
+  outlinerSearchOpen: false,
+  setOutlinerSearchOpen: (outlinerSearchOpen) => set({ outlinerSearchOpen }),
+  inspectorExpansion: {},
+  setInspectorExpanded: (joint, expanded) =>
+    set((state) => ({ inspectorExpansion: { ...state.inspectorExpansion, [joint]: expanded } })),
   panelSizes: {},
   setPanelSize: (panel, size) => set((s) => ({ panelSizes: { ...s.panelSizes, [panel]: size } })),
   workArea: null,
@@ -90,6 +97,8 @@ export const useUi = create<UiState>((set) => ({
   loading: null,
   error: null,
   projectPath: null,
+  viewportMarquee: null,
+  setViewportMarquee: (viewportMarquee) => set({ viewportMarquee }),
   transformMode: 'rotate',
   setTransformMode: (transformMode) => set({ transformMode }),
   transformDraft: null,

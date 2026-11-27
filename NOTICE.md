@@ -38,22 +38,8 @@ Runtime dependencies have to be MIT, Apache-2.0, BSD, MPL-2.0, GPL-3.0 or AGPL-3
 
 The skinned characters the import tests use come from the Khronos glTF Sample Assets and aren't in this repository. `pnpm fetch-assets` downloads them into `fixtures/khronos/`, each with its own LICENSE.md.
 
-## Lucide Icons
+## Central Icons
 
-The Outliner and transform toolbar use Lucide glyphs. The Move glyph is derived from Feather and carries Cole Bemis’s MIT notice. The desktop package includes the complete Lucide license at `licenses/lucide/LICENSE` and the Pierre Trees license and notice at `licenses/pierre-trees/`.
+The interface embeds selected Central Icons from `@central-icons-react/round-outlined-radius-3-stroke-1.5` version `1.2.39`. The glyphs in `packages/app/src/icons/` are copyright © David & Storm GbR – Iconists and are covered by the [Iconists license](https://iconists.co/license).
 
-ISC License
-
-Copyright (c) 2026 Lucide Icons and Contributors
-
-Permission to use, copy, modify, and/or distribute this software for any
-purpose with or without fee is hereby granted, provided that the above
-copyright notice and this permission notice appear in all copies.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+The desktop package includes this notice and the Pierre Trees license and notice at `licenses/pierre-trees/`.

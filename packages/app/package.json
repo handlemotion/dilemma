@@ -25,14 +25,15 @@
     "@tailwindcss/vite": "^4.3.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/three": "~0.187.0",
     "@vitejs/plugin-react": "^6.3.0",
     "electron": "~45.4.1",
     "electron-builder": "^26.18.1",
     "esbuild": "^0.28.2",
-    "lucide-static": "^1.81.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "tailwindcss": "^4.3.5",
+    "three": "~0.187.0",
     "vite": "^8.4.0",
     "zustand": "^5.1.0"
   },
@@ -81,10 +82,6 @@
       {
         "from": "node_modules/@pierre/trees/NOTICE.md",
         "to": "licenses/pierre-trees/NOTICE.md"
-      },
-      {
-        "from": "node_modules/lucide-static/LICENSE",
-        "to": "licenses/lucide/LICENSE"
       }
     ]
   },

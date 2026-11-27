@@ -1,13 +1,14 @@
-import { Tabs } from '@base-ui/react/tabs'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { MenuAction } from '../electron/ipc.ts'
 import { exportAnimation, importCharacter, openProject, saveProject } from './actions.ts'
 import { deleteKeys, keySelection } from './animation.ts'
 import { bridge } from './bridge.ts'
+import { Inspector } from './components/inspector.tsx'
 import { Outliner } from './components/outliner.tsx'
+import { PanelHeader } from './components/panel-header.tsx'
 import { StatusBar } from './components/status-bar.tsx'
 import { Timeline } from './components/timeline.tsx'
-import { TransformTools, transformTools } from './components/transform-tools.tsx'
+import { AnimationActions, TransformTools, transformTools } from './components/transform-tools.tsx'
 import {
   DEFAULT_TIMELINE_HEIGHT,
   TRACK_HEIGHT,
@@ -16,8 +17,11 @@ import {
 } from './components/timeline-tracks.ts'
 import { activeViewport, ViewportPanel } from './components/viewport-panel.tsx'
 import { editor, useEditorState } from './editor.ts'
+import { Icon, type IconName } from './icons/central.tsx'
 import { usePlayback } from './playback.ts'
 import { PREVIEW_END, useUi } from './ui-store.ts'
+
+const SIDE_PANEL_LIMIT = 0.34
 
 export function App() {
   usePlayback()
@@ -25,6 +29,11 @@ export function App() {
   const canUndo = useEditorState((s) => s.canUndo)
   const canRedo = useEditorState((s) => s.canRedo)
   const sizes = useUi((s) => s.panelSizes)
+  const outlinerWidth =
+    sizes.outliner === undefined ? 'clamp(160px, 20vw, 240px)' : `${sizes.outliner}px`
+  const inspectorWidth =
+    sizes.inspector === undefined ? 'clamp(176px, 23vw, 272px)' : `${sizes.inspector}px`
+  const sideLimit = `${SIDE_PANEL_LIMIT * 100}vw`
   const timelineCharacter = useEditorState(({ doc, playhead }) => {
     const clip = doc.clips.find((item) => item.id === playhead.clipId)
     return doc.characters.find((character) => character.id === clip?.characterId)
@@ -36,15 +45,14 @@ export function App() {
   const loading = useUi((s) => s.loading)
   const projectPath = useUi((s) => s.projectPath)
   const clipId = useEditorState((s) => s.playhead.clipId)
-  const fileInput = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
 
   return (
     <div
       className="grid h-full"
       style={{
-        gridTemplateColumns: `minmax(0, 1fr) ${sizes.dock === undefined ? 'clamp(176px, 23vw, 272px)' : `min(${sizes.dock}px, 55vw)`}`,
-        gridTemplateRows: `43px minmax(0, 1fr) min(${timelineSize}px, max(${timelineMin}px, 55vh)) 35px`,
+        gridTemplateColumns: `min(${outlinerWidth}, ${sideLimit}) minmax(0, 1fr) min(${inspectorWidth}, ${sideLimit})`,
+        gridTemplateRows: `43px 40px minmax(0, 1fr) min(${timelineSize}px, max(${timelineMin}px, 55vh)) 35px`,
       }}
       onDragOver={(e) => {
         e.preventDefault()
@@ -59,45 +67,26 @@ export function App() {
       }}
     >
       <header
-        className={`drag-region col-span-full flex items-center gap-2 border-b border-line bg-panel p-2 ${
+        className={`drag-region relative col-span-full flex items-center gap-2 border-b border-line bg-timeline p-2 ${
           bridge?.platform === 'darwin' ? 'pl-[76px]' : 'pl-2'
         }`}
       >
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".glb,.gltf"
-          hidden
-          onChange={(event) => {
-            const file = event.currentTarget.files?.[0]
-            if (file) void importCharacter(file)
-            event.currentTarget.value = ''
-          }}
-        />
-        <button
-          type="button"
-          className="shell-primary"
-          disabled={Boolean(loading)}
-          onClick={() => {
-            if (bridge) void importCharacter()
-            else fileInput.current?.click()
-          }}
-        >
-          Import character
-        </button>
         <IconButton
           onClick={() => editor.undo()}
           disabled={!canUndo}
           title="Undo (⌘Z)"
-          icon={<path d="M5.5 3 2.5 6l3 3M2.5 6h7a4 4 0 0 1 0 8H7" />}
+          icon="undo"
         />
         <IconButton
           onClick={() => editor.redo()}
           disabled={!canRedo}
           title="Redo (⇧⌘Z)"
-          icon={<path d="m10.5 3 3 3-3 3M13.5 6h-7a4 4 0 0 0 0 8H9" />}
+          icon="redo"
         />
-        <span className="mx-auto truncate font-medium text-muted" title={projectPath ?? undefined}>
+        <span
+          className="absolute top-1/2 left-1/2 max-w-1/2 -translate-x-1/2 -translate-y-1/2 truncate font-medium text-muted"
+          title={projectPath ?? undefined}
+        >
           {projectPath
             ?.split(/[\\/]/)
             .pop()
@@ -106,7 +95,7 @@ export function App() {
         {bridge && (
           <button
             type="button"
-            className="shell-action"
+            className="shell-action ml-auto"
             disabled={!clipId || Boolean(loading)}
             onClick={() => void exportAnimation()}
           >
@@ -114,6 +103,15 @@ export function App() {
           </button>
         )}
       </header>
+
+      <AnimationActions />
+      <aside
+        aria-label="Outliner"
+        className="relative flex min-h-0 min-w-0 flex-col border-r border-line bg-panel"
+      >
+        <PanelDivider panel="outliner" label="Resize Outliner" min={144} />
+        <Outliner />
+      </aside>
 
       <main className="relative min-h-0 min-w-0 overflow-hidden bg-timeline">
         <ViewportPanel />
@@ -133,9 +131,15 @@ export function App() {
         )}
       </main>
 
-      <aside className="relative flex min-h-0 min-w-0 flex-col border-l border-line bg-panel">
-        <PanelDivider panel="dock" label="Resize right dock" vertical min={144} />
-        <DockTabs />
+      <aside
+        aria-label="Properties"
+        className="relative flex min-h-0 min-w-0 flex-col border-l border-line bg-panel"
+      >
+        <PanelDivider panel="inspector" label="Resize Inspector" min={144} />
+        <PanelHeader title="Properties" />
+        <div className="min-h-0 flex-1 overflow-auto">
+          <Inspector />
+        </div>
       </aside>
 
       <div className="relative col-span-full min-h-0 min-w-0">
@@ -150,14 +154,14 @@ export function App() {
 function PanelDivider({
   panel,
   label,
-  vertical = false,
   min,
 }: {
-  panel: 'dock' | 'timeline'
+  panel: 'outliner' | 'inspector' | 'timeline'
   label: string
-  vertical?: boolean
   min: number
 }) {
+  const vertical = panel !== 'timeline'
+  const growsRight = panel === 'outliner'
   const drag = useRef<{ pointer: number; origin: number; size: number; moved: boolean } | null>(
     null,
   )
@@ -166,7 +170,7 @@ function PanelDivider({
     return vertical ? rect.width : rect.height
   }
   const resize = (size: number) => {
-    const max = (vertical ? window.innerWidth : window.innerHeight) * 0.55
+    const max = vertical ? window.innerWidth * SIDE_PANEL_LIMIT : window.innerHeight * 0.55
     useUi
       .getState()
       .setPanelSize(panel, Math.round(Math.min(Math.max(min, max), Math.max(min, size))))
@@ -180,8 +184,8 @@ function PanelDivider({
       title="Drag to resize. Click to reset."
       className={`absolute z-10 touch-none outline-none before:pointer-events-none before:absolute before:content-[''] hover:before:bg-accent data-resizing:before:bg-accent focus-visible:before:bg-accent ${
         vertical
-          ? 'inset-y-0 -left-1 w-2 cursor-col-resize before:inset-y-0 before:left-[3px] before:w-px'
-          : `inset-x-0 -top-1 h-2 cursor-row-resize before:inset-x-0 before:h-px before:top-1`
+          ? `inset-y-0 w-2 cursor-col-resize before:inset-y-0 before:w-px ${growsRight ? '-right-1 before:right-[3px]' : '-left-1 before:left-[3px]'}`
+          : 'inset-x-0 -top-1 h-2 cursor-row-resize before:inset-x-0 before:h-px before:top-1'
       }`}
       onPointerDown={(event) => {
         if (event.button !== 0 || !event.isPrimary) return
@@ -199,7 +203,7 @@ function PanelDivider({
       onPointerMove={(event) => {
         if (drag.current?.pointer !== event.pointerId) return
         const current = vertical ? event.clientX : event.clientY
-        const delta = drag.current.origin - current
+        const delta = growsRight ? current - drag.current.origin : drag.current.origin - current
         if (!drag.current.moved && Math.abs(delta) < 3) return
         drag.current.moved = true
         resize(drag.current.size + delta)
@@ -221,8 +225,8 @@ function PanelDivider({
           useUi.getState().setPanelSize(panel, undefined)
           return
         }
-        const grow = vertical ? 'ArrowLeft' : 'ArrowUp'
-        const shrink = vertical ? 'ArrowRight' : 'ArrowDown'
+        const grow = vertical ? (growsRight ? 'ArrowRight' : 'ArrowLeft') : 'ArrowUp'
+        const shrink = vertical ? (growsRight ? 'ArrowLeft' : 'ArrowRight') : 'ArrowDown'
         if (event.key !== grow && event.key !== shrink) return
         event.preventDefault()
         resize(sizeOf(event.currentTarget) + (event.key === grow ? 16 : -16))
@@ -231,46 +235,7 @@ function PanelDivider({
   )
 }
 
-function DockTabs() {
-  const active = useUi((s) => s.dockTab)
-  const tabClass =
-    'relative -mb-px h-8 border-r border-b border-line px-3 text-muted hover:bg-control hover:text-ink data-active:border-b-panel data-active:bg-panel data-active:font-semibold data-active:text-ink'
-
-  return (
-    <Tabs.Root
-      value={active}
-      onValueChange={(value) => {
-        if (value === 'outliner' || value === 'inspector') useUi.getState().setDockTab(value)
-      }}
-      className="flex min-h-0 flex-1 flex-col"
-    >
-      <Tabs.List
-        aria-label="Right dock"
-        className="flex shrink-0 items-end border-b border-line bg-timeline"
-      >
-        <Tabs.Tab value="outliner" className={tabClass}>
-          Outliner
-        </Tabs.Tab>
-        <Tabs.Tab value="inspector" className={tabClass}>
-          Inspector
-        </Tabs.Tab>
-      </Tabs.List>
-      <Tabs.Panel value="outliner" keepMounted className="min-h-0 flex-1 p-2">
-        <Outliner />
-      </Tabs.Panel>
-      <Tabs.Panel value="inspector" className="min-h-0 flex-1 overflow-auto pt-3">
-        <SelectionInfo />
-      </Tabs.Panel>
-    </Tabs.Root>
-  )
-}
-
-function IconButton(props: {
-  onClick(): void
-  disabled?: boolean
-  title: string
-  icon: ReactNode
-}) {
+function IconButton(props: { onClick(): void; disabled?: boolean; title: string; icon: IconName }) {
   return (
     <button
       type="button"
@@ -280,36 +245,8 @@ function IconButton(props: {
       aria-label={props.title}
       className="shell-icon"
     >
-      <svg
-        width="15"
-        height="15"
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden
-      >
-        {props.icon}
-      </svg>
+      <Icon name={props.icon} size={15} />
     </button>
-  )
-}
-
-/** The selected joints, by name, with their character. */
-function SelectionInfo() {
-  const selection = useEditorState((s) => s.selection)
-  const characters = useEditorState((s) => s.doc.characters)
-  const names = selection.joints.flatMap((ref) => {
-    const joint = characters.find((c) => c.id === ref.characterId)?.skeleton.joints[ref.joint]
-    return joint ? [joint.name] : []
-  })
-  if (names.length === 0) return null
-  return (
-    <p className="truncate px-3 pb-3 text-muted" title={names.join(', ')}>
-      {names.join(', ')}
-    </p>
   )
 }
 
@@ -356,7 +293,7 @@ function useShortcuts(): void {
       if (
         e.target instanceof Element &&
         e.target.closest(
-          '[data-timeline-track], [role="combobox"], [role="listbox"], [data-animation-tools]',
+          '[data-timeline-track], [role="combobox"], [role="listbox"], [data-animation-tools], button[aria-expanded]',
         )
       )
         return
@@ -379,17 +316,15 @@ function useShortcuts(): void {
         useUi.getState().setTransformMode(tool.mode)
       } else if (e.key === 'f' && !mod) run('frame')
       else if (e.key === 'Escape') {
-        if (!activeViewport()?.cancelTransform()) editor.select([])
+        const viewport = activeViewport()
+        if (!viewport?.cancelTransform() && !viewport?.cancelSelection()) editor.select([])
       } else if (e.key.toLowerCase() === 's' && !mod && !e.altKey && !e.repeat) keySelection()
       else if ((e.key === 'Delete' || e.key === 'Backspace') && !mod && deleteKeys()) {
         e.preventDefault()
       } else if ((e.key === ',' || e.key === '.') && !mod && !e.altKey && !e.isComposing) {
         e.preventDefault()
         seekKeyframe(e.key === ',' ? -1 : 1)
-      } else if (
-        (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
-        !(e.target instanceof Element && e.target.closest('[role="tablist"]'))
-      )
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
         step(e.key === 'ArrowLeft' ? -1 : 1)
       else if (!bridge && mod && e.key === 'z') run(e.shiftKey ? 'redo' : 'undo')
     }

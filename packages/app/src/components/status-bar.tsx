@@ -1,4 +1,5 @@
 import { Select } from '@base-ui/react/select'
+import { Icon } from '../icons/central.tsx'
 import { PLAYBACK_SPEEDS, useUi } from '../ui-store.ts'
 
 const speedItems = PLAYBACK_SPEEDS.map((speed) => ({ value: speed, label: `${speed}×` }))
@@ -42,7 +43,7 @@ export function StatusBar() {
           <span className="flex min-w-16 items-center justify-between gap-2 border-l border-control-divider px-2">
             <Select.Value className="tabular-nums" />
             <Select.Icon className="text-faint" aria-hidden="true">
-              ▾
+              <Icon name="chevronDown" size={12} />
             </Select.Icon>
           </span>
         </Select.Trigger>

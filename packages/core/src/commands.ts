@@ -86,35 +86,52 @@ const channelLabel = {
   scales: 'scale',
 } satisfies Record<TransformChannel, string>
 
+export interface JointKey {
+  joint: number
+  key: TransformKey
+}
+
 export function setTransformKey(
   target: Clip | string,
   joint: number,
   frame: number,
   key: TransformKey,
 ): Command {
+  return setTransformKeys(target, frame, [{ joint, key }])
+}
+
+export function setTransformKeys(
+  target: Clip | string,
+  frame: number,
+  keys: readonly JointKey[],
+): Command {
   const id = typeof target === 'string' ? target : target.id
-  return editClip(id, `Set ${channelLabel[key.channel]} key`, (current) => {
+  const single = keys.length === 1 ? keys[0] : undefined
+  const label = single ? `Set ${channelLabel[single.key.channel]} key` : 'Set transform keys'
+  return editClip(id, label, (current) => {
     const clip = current ?? (typeof target === 'string' ? undefined : target)
     if (!clip) throw new Error(`No clip ${id}.`)
     if (!Number.isInteger(frame) || frame < clip.start || frame > clip.end) {
       throw new Error('The key must be on an integer frame within the clip.')
     }
-    if (!key.value.every(Number.isFinite)) throw new Error('The key values must be finite.')
     const tracks = [...clip.tracks]
-    const index = tracks.findIndex((track) => track.joint === joint)
-    const track = tracks[index]
-    const frames = [...(track?.[key.channel]?.frames ?? [])]
-    const values = [...(track?.[key.channel]?.values ?? [])]
-    const first = frames.findIndex((existing) => existing >= frame)
-    const offset = first < 0 ? frames.length : first
-    const count = frames[offset] === frame ? 1 : 0
-    const size = key.value.length
-    frames.splice(offset, count, frame)
-    values.splice(offset * size, count * size, ...key.value)
-    tracks[index < 0 ? tracks.length : index] = {
-      ...track,
-      joint,
-      [key.channel]: { frames, values },
+    for (const { joint, key } of keys) {
+      if (!key.value.every(Number.isFinite)) throw new Error('The key values must be finite.')
+      const index = tracks.findIndex((track) => track.joint === joint)
+      const track = tracks[index]
+      const frames = [...(track?.[key.channel]?.frames ?? [])]
+      const values = [...(track?.[key.channel]?.values ?? [])]
+      const first = frames.findIndex((existing) => existing >= frame)
+      const offset = first < 0 ? frames.length : first
+      const count = frames[offset] === frame ? 1 : 0
+      const size = key.value.length
+      frames.splice(offset, count, frame)
+      values.splice(offset * size, count * size, ...key.value)
+      tracks[index < 0 ? tracks.length : index] = {
+        ...track,
+        joint,
+        [key.channel]: { frames, values },
+      }
     }
     return { ...clip, tracks }
   })

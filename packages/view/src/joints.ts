@@ -13,7 +13,7 @@ import {
   SphereGeometry,
 } from 'three'
 
-const IDLE = new Color('#4c94fa')
+const IDLE = new Color('#0c8ce9')
 const SELECTED = new Color('#fab94c')
 
 /** Draws a skeleton as dots and parent-child lines, on top of the mesh. */

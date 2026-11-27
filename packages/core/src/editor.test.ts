@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { addCharacter, deleteRotationKeys, removeCharacter, setRotationKey } from './commands.ts'
+import {
+  addCharacter,
+  deleteRotationKeys,
+  deleteTransformKeys,
+  removeCharacter,
+  setRotationKey,
+  setTransformKey,
+} from './commands.ts'
 import { emptyDocument, type Character, type Clip } from './document.ts'
 import { Editor } from './editor.ts'
 import { DocumentVersionError, migrate } from './migrate.ts'
@@ -69,6 +76,43 @@ describe('Editor', () => {
     }
     for (let i = 0; i < 200; i++) expect(editor.undo()).toBe(true)
     expect(editor.getState().doc).toEqual(start)
+  })
+
+  it('keys independent transform channels and undoes their deletion in one step', () => {
+    const editor = new Editor()
+    editor.run(addCharacter(character('a'), [clip('walk', 'a')]))
+    editor.run(setTransformKey('walk', 0, 2, { channel: 'translations', value: [1, 2, 3] }))
+    editor.run(setRotationKey('walk', 0, 5, [0, 0, 0, 1]))
+    editor.run(setTransformKey('walk', 0, 5, { channel: 'scales', value: [2, 3, 4] }))
+    editor.run(setTransformKey('walk', 0, 2, { channel: 'translations', value: [4, 5, 6] }))
+    const keyed = editor.getState().doc
+    expect(keyed.clips[0]?.tracks).toEqual([
+      {
+        joint: 0,
+        translations: { frames: [2], values: [4, 5, 6] },
+        rotations: { frames: [5], values: [0, 0, 0, 1] },
+        scales: { frames: [5], values: [2, 3, 4] },
+      },
+    ])
+
+    editor.run(deleteTransformKeys('walk', [0], 5, 5))
+    expect(editor.getState().doc.clips[0]?.tracks).toEqual([
+      { joint: 0, translations: { frames: [2], values: [4, 5, 6] } },
+    ])
+    expect(editor.undo()).toBe(true)
+    expect(editor.getState().doc).toEqual(keyed)
+    expect(editor.undo()).toBe(true)
+    expect(editor.getState().doc.clips[0]?.tracks[0]?.translations?.values).toEqual([1, 2, 3])
+  })
+
+  it('undoes the first transform key and its newly created clip together', () => {
+    const editor = new Editor()
+    editor.run(addCharacter(character('a')))
+    const before = editor.getState().doc
+    editor.run(setTransformKey(clip('walk', 'a'), 0, 7, { channel: 'scales', value: [2, 2, 2] }))
+    expect(editor.getState().doc.clips[0]?.tracks[0]?.scales?.frames).toEqual([7])
+    expect(editor.undo()).toBe(true)
+    expect(editor.getState().doc).toEqual(before)
   })
 
   it('drops selected joints that no longer exist', () => {

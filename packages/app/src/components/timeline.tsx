@@ -1,55 +1,109 @@
 import { Select } from '@base-ui/react/select'
-import type { Clip } from '@dilemma/core'
-import { useEffect, useRef, type ReactNode } from 'react'
-import { deleteKeys, keySelection, newClip } from '../animation.ts'
+import { findCharacter, type Clip, type DilemmaDocument } from '@dilemma/core'
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type KeyboardEvent as ReactKeyEvent,
+  type ReactNode,
+} from 'react'
+import { selectJoints } from '../animation.ts'
 import { editor, useEditorState } from '../editor.ts'
 import { PREVIEW_END, PREVIEW_FPS, useUi, type TimelineRange } from '../ui-store.ts'
+import {
+  PREVIEW_ROW,
+  TIMELINE_HEADER_HEIGHT as HEADER,
+  TRACK_HEIGHT,
+  timelineRowAt,
+  timelineRows,
+  type TimelineRow,
+  type TimelineRowId,
+} from './timeline-tracks.ts'
+import { formatTimelineTime, parseTimelineTime } from './timeline-timecode.ts'
 
 const PAD = 6
-const TRACK_HEIGHT = 40
-const HEADER = 40
-export const DEFAULT_TIMELINE_HEIGHT = HEADER + TRACK_HEIGHT + 1
 const WORK_AREA_HEIGHT = 15
 const RULER = HEADER - WORK_AREA_HEIGHT
 
-/** Frame ruler, key markers and transient range selection. */
 export function Timeline() {
   const doc = useEditorState((s) => s.doc)
-  const playhead = useEditorState((s) => s.playhead)
+  const clipId = useEditorState((s) => s.playhead.clipId)
+  const clip = doc.clips.find((item) => item.id === clipId) ?? null
+  return <TimelineContent key={clip?.id} doc={doc} clip={clip} />
+}
+
+type Drag = { pointer: number; anchor: number } & (
+  | { mode: 'select'; rowId: TimelineRowId }
+  | { mode: 'scrub' }
+  | { mode: 'start' | 'end' | 'move'; workStart: number; workEnd: number }
+)
+
+function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | null }) {
+  const playheadFrame = useEditorState((s) => s.playhead.frame)
   const selection = useEditorState((s) => s.selection)
   const playing = useUi((s) => s.playing)
   const setPlaying = useUi((s) => s.setPlaying)
-  const clip = doc.clips.find((c) => c.id === playhead.clipId) ?? null
+  const character = clip ? findCharacter(doc, clip.characterId) : undefined
+  const expanded = useUi((s) => s.expandedTimelineCharacterId === character?.id)
+  const activeRow = useUi((s) => s.activeTimelineRow)
   const canvas = useRef<HTMLCanvasElement>(null)
-  const gesture = useRef<{
-    pointer: number
-    anchor: number
-    mode: 'scrub' | 'select' | 'start' | 'end' | 'move'
-    workStart: number
-    workEnd: number
-  } | null>(null)
+  const timecodeField = useRef<HTMLInputElement>(null)
+  const trackList = useRef<HTMLDivElement>(null)
+  const paint = useRef<(() => void) | null>(null)
+  const gesture = useRef<Drag | null>(null)
   const previewFrame = useUi((s) => s.previewFrame)
   const timelineRange = useUi((s) => s.timelineRange)
   const clipId = clip?.id ?? null
   const start = clip?.start ?? 0
   const end = clip?.end ?? PREVIEW_END
   const workArea = useUi((s) => s.workArea)
-  const frame = clip ? playhead.frame : previewFrame
-  const range = timelineRange?.clipId === clipId ? timelineRange : null
+  const frame = clip ? playheadFrame : previewFrame
+  const allRows = useMemo(
+    () => (character && clip ? timelineRows(character, clip) : [PREVIEW_ROW]),
+    [character, clip],
+  )
+  const rows = useMemo(() => (expanded ? allRows : allRows.slice(0, 1)), [allRows, expanded])
+  const summary = allRows[0]!
+  const selectedJoints = useMemo(
+    () =>
+      new Set(selection.joints.filter((j) => j.characterId === character?.id).map((j) => j.joint)),
+    [selection.joints, character?.id],
+  )
+  const lastSelectedJoint = Array.from(selectedJoints).at(-1)
+  const selectedRowIndex = rows.findIndex((row) => row.joint === lastSelectedJoint)
+  const rangeRow =
+    timelineRange?.clipId === clipId
+      ? rows.find((row) => row.id === timelineRange.rowId)
+      : undefined
+  const range = rangeRow ? timelineRange : null
+  const keyboardRow =
+    (activeRow?.clipId === clipId && rows.find((row) => row.id === activeRow.rowId)) ||
+    rows[selectedRowIndex] ||
+    summary
   const clamp = (value: number) => Math.min(end, Math.max(start, value))
 
   const workStart = clamp(workArea?.clipId === clipId ? workArea.start : start)
   const workEnd = Math.max(workStart, clamp(workArea?.clipId === clipId ? workArea.end : end))
   const fps = Math.max(1, Math.round(clip?.fps ?? PREVIEW_FPS))
-  const totalSeconds = Math.floor(frame / fps)
-  const timecode = [Math.floor(totalSeconds / 60), totalSeconds % 60, frame % fps]
-    .map((part) => String(part).padStart(2, '0'))
-    .join(':')
+  const timecode = formatTimelineTime(frame, fps)
+
+  useLayoutEffect(() => {
+    const field = timecodeField.current
+    if (field && document.activeElement !== field) field.value = timecode
+  }, [timecode])
 
   useEffect(() => {
+    const previous = useUi.getState()
+    if (previous.timelineRange && previous.timelineRange.clipId !== clipId)
+      previous.setTimelineRange(null)
+    if (previous.activeTimelineRow && previous.activeTimelineRow.clipId !== clipId)
+      previous.setActiveTimelineRow(null)
+
     function clearSelection(event: KeyboardEvent) {
-      if (event.key !== 'Escape') return
+      if (event.key !== 'Escape' || event.target === timecodeField.current) return
       const ui = useUi.getState()
+      if (ui.transformDraft) return
       const drag = gesture.current
       if (drag?.mode !== 'select' && ui.timelineRange?.clipId !== clipId) return
       event.preventDefault()
@@ -64,28 +118,44 @@ export function Timeline() {
     return () => window.removeEventListener('keydown', clearSelection, true)
   }, [clipId])
 
-  const selectedJoints = new Set(
-    selection.joints.filter((j) => j.characterId === clip?.characterId).map((j) => j.joint),
-  )
-  const keyFrames = clip ? keysFor(clip, selectedJoints) : []
-  const firstKey = range ? Math.min(range.anchor, range.edge) : frame
-  const lastKey = range ? Math.max(range.anchor, range.edge) : frame
-  const canDelete =
-    clip?.tracks.some(
-      (track) =>
-        selectedJoints.has(track.joint) &&
-        track.rotations?.frames.some((key) => key >= firstKey && key <= lastKey),
-    ) ?? false
+  useLayoutEffect(() => {
+    const list = trackList.current
+    if (!list || selectedRowIndex < 1) return
+    const top = selectedRowIndex * TRACK_HEIGHT
+    if (top < list.scrollTop + TRACK_HEIGHT) list.scrollTop = top - TRACK_HEIGHT
+    else if (top + TRACK_HEIGHT > list.scrollTop + list.clientHeight) {
+      list.scrollTop = top + TRACK_HEIGHT - list.clientHeight
+    }
+  }, [selectedRowIndex, selectedJoints, expanded])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = canvas.current
     if (!el) return
-    const redraw = () => draw(el, start, end, frame, keyFrames, range, workStart, workEnd)
-    redraw()
+    paint.current = () =>
+      draw(
+        el,
+        start,
+        end,
+        frame,
+        rows,
+        selectedJoints,
+        range,
+        workStart,
+        workEnd,
+        trackList.current?.scrollTop ?? 0,
+      )
+    paint.current()
+    return () => {
+      paint.current = null
+    }
+  }, [start, end, frame, rows, selectedJoints, range, workStart, workEnd])
+
+  useEffect(() => {
+    const redraw = () => paint.current?.()
     const observer = new ResizeObserver(redraw)
-    observer.observe(el)
+    if (canvas.current) observer.observe(canvas.current)
     return () => observer.disconnect()
-  })
+  }, [])
 
   function seek(value: number) {
     setPlaying(false)
@@ -100,7 +170,11 @@ export function Timeline() {
 
   function modeAt(clientX: number, clientY: number, rect: DOMRect) {
     const row = clientY - rect.top
-    if (row >= HEADER) return 'select'
+    if (row >= HEADER) {
+      return timelineRowAt(rows, row - HEADER, trackList.current?.scrollTop ?? 0)
+        ? 'select'
+        : 'scrub'
+    }
     if (row < RULER) return 'scrub'
     const width = Math.max(1, rect.width - PAD * 2)
     const x = (value: number) => PAD + ((value - start) / Math.max(1, end - start)) * width
@@ -115,12 +189,52 @@ export function Timeline() {
     return pointer > x(workStart) && pointer < x(workEnd) ? 'move' : 'scrub'
   }
 
-  function selectRange(anchor: number, edge: number) {
-    useUi.getState().setTimelineRange(anchor === edge ? null : { clipId, anchor, edge })
+  function activateRow(rowId: TimelineRowId) {
+    useUi.getState().setActiveTimelineRow({ clipId, rowId })
   }
 
+  function selectRange(rowId: TimelineRowId, anchor: number, edge: number) {
+    useUi.getState().setTimelineRange(anchor === edge ? null : { clipId, rowId, anchor, edge })
+  }
+
+  function handleTimelineKey(event: ReactKeyEvent, rowId: TimelineRowId) {
+    if (event.key === '[' || event.key === ']') {
+      event.preventDefault()
+      useUi.getState().setWorkArea({
+        clipId,
+        start: event.key === '[' ? Math.min(frame, workEnd) : workStart,
+        end: event.key === ']' ? Math.max(frame, workStart) : workEnd,
+      })
+      return
+    }
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+    event.preventDefault()
+    const rowRange = range?.rowId === rowId ? range : null
+    const offset = event.key === 'ArrowLeft' ? -1 : 1
+    const next = clamp((event.shiftKey && rowRange ? rowRange.edge : frame) + offset)
+    if (event.shiftKey) {
+      activateRow(rowId)
+      selectRange(rowId, rowRange?.anchor ?? frame, next)
+    } else seek(next)
+  }
+
+  function toggleTracks() {
+    if (!character) return
+    const ui = useUi.getState()
+    if (expanded) {
+      if (rangeRow?.joint != null) ui.setTimelineRange(null)
+      activateRow(summary.id)
+    }
+    ui.setExpandedTimelineCharacter(expanded ? null : character.id)
+  }
+
+  const rangeDescription =
+    range && rangeRow
+      ? ` ${rangeRow.name || 'Preview'} range, frames ${Math.min(range.anchor, range.edge)} to ${Math.max(range.anchor, range.edge)}.`
+      : ''
+
   return (
-    <div className="grid h-full grid-cols-[max-content_minmax(0,1fr)] overflow-hidden border-t border-line bg-panel">
+    <div className="group/timeline grid h-full grid-cols-[max-content_minmax(0,1fr)] overflow-hidden border-t border-line bg-panel">
       <div className="flex min-h-0 min-w-0 flex-col border-r border-line">
         <div
           role="group"
@@ -128,13 +242,48 @@ export function Timeline() {
           className="flex shrink-0 items-center gap-2 border-b border-line px-2"
           style={{ height: HEADER }}
         >
-          <span
+          <input
+            ref={timecodeField}
+            type="text"
+            defaultValue={timecode}
+            autoComplete="off"
+            spellCheck={false}
             title={`Frame ${frame} of ${end}`}
             aria-label="Current time"
-            className="min-w-10 rounded-md bg-control px-2 py-1 text-center font-mono tabular-nums text-ink"
-          >
-            {timecode}
-          </span>
+            aria-description="Enter a frame number, seconds like 1s, or a timecode like 00:01:00."
+            className="shrink-0 rounded-md bg-control px-2 py-1 text-center font-mono tabular-nums text-ink outline-none select-text ring-muted ring-inset focus-visible:ring-1 group-has-[canvas:focus-visible]/timeline:ring-1"
+            style={{ width: `calc(${timecode.length}ch + 1rem)` }}
+            onFocus={(event) => {
+              setPlaying(false)
+              event.currentTarget.select()
+            }}
+            onChange={(event) => event.currentTarget.setCustomValidity('')}
+            onBlur={(event) => {
+              const field = event.currentTarget
+              const enteredFrame = parseTimelineTime(field.value, fps)
+              const next = enteredFrame === undefined ? frame : clamp(enteredFrame)
+              field.setCustomValidity('')
+              field.value = formatTimelineTime(next, fps)
+              if (next !== frame) seek(next)
+            }}
+            onKeyDown={(event) => {
+              const field = event.currentTarget
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                if (parseTimelineTime(field.value, fps) === undefined) {
+                  field.setCustomValidity('Enter a frame like 24 or a time like 00:01:00.')
+                  field.reportValidity()
+                  return
+                }
+              } else if (event.key === 'Escape') {
+                event.preventDefault()
+                field.value = timecode
+              } else {
+                return
+              }
+              canvas.current?.focus({ preventScroll: true })
+            }}
+          />
           <div role="group" aria-label="Playback" className="flex items-center gap-1.5">
             <TransportButton
               label="First frame"
@@ -144,97 +293,125 @@ export function Timeline() {
               <path d="M2 2v8m7-8-5 4 5 4z" />
             </TransportButton>
             <TransportButton
-              label="Previous frame"
-              disabled={frame === start}
-              onClick={() => seek(frame - 1)}
-            >
-              <path d="M9 2 4 6l5 4z" />
-            </TransportButton>
-            <TransportButton
               label={playing ? 'Pause' : 'Play'}
               shortcut="Space"
               onClick={() => setPlaying(!playing)}
             >
               {playing ? <path d="M3 2h2v8H3zm4 0h2v8H7z" /> : <path d="M3 2v8l7-4z" />}
             </TransportButton>
-            <TransportButton
-              label="Next frame"
-              disabled={frame === end}
-              onClick={() => seek(frame + 1)}
-            >
-              <path d="m3 2 5 4-5 4z" />
-            </TransportButton>
             <TransportButton label="Last frame" disabled={frame === end} onClick={() => seek(end)}>
               <path d="M10 2v8M3 2l5 4-5 4z" />
             </TransportButton>
           </div>
         </div>
-        <div className="flex min-w-0 items-center gap-1.5 px-2 py-0.5">
-          {doc.clips.length > 0 && <ClipSelect clips={doc.clips} value={clipId} />}
-          <button
-            type="button"
-            className="shell-action"
-            onClick={newClip}
-            disabled={!doc.characters.length}
+        <div
+          ref={trackList}
+          onScroll={() => paint.current?.()}
+          className="min-h-0 flex-1 overflow-y-auto [contain:inline-size] [scrollbar-width:thin]"
+          style={{ scrollPaddingTop: TRACK_HEIGHT }}
+        >
+          <div
+            className="selection-tint sticky top-0 z-10 isolate flex items-center gap-2 bg-panel px-2"
+            data-tinted={!expanded && selectedJoints.size > 0 ? '' : undefined}
+            style={{ height: TRACK_HEIGHT }}
           >
-            New clip
-          </button>
-          <button
-            type="button"
-            className="shell-action"
-            onClick={keySelection}
-            title="Set rotation key (S)"
-            disabled={selection.joints.length !== 1}
-          >
-            Set key
-          </button>
-          <button
-            type="button"
-            className="shell-action"
-            onClick={deleteKeys}
-            title="Delete selected rotation keys"
-            disabled={!canDelete}
-          >
-            Delete keys
-          </button>
-          {clip && <span className="shrink-0 text-faint">{clip.fps} fps</span>}
+            {character && allRows.length > 1 ? (
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-left font-medium text-ink hover:bg-control"
+                data-timeline-track
+                aria-expanded={expanded}
+                aria-controls="timeline-joint-tracks"
+                onClick={toggleTracks}
+                onKeyDown={(e) => handleTimelineKey(e, summary.id)}
+                title={summary.name}
+              >
+                <svg
+                  aria-hidden="true"
+                  className={`size-3 shrink-0 text-faint ${expanded ? 'rotate-90' : ''}`}
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="m6 4 4 4-4 4" />
+                </svg>
+                <span className="truncate">{summary.name}</span>
+              </button>
+            ) : (
+              <span className="min-w-0 flex-1 truncate font-medium text-ink">{summary.name}</span>
+            )}
+            {doc.clips.length > 1 && <ClipSelect clips={doc.clips} value={clipId} />}
+          </div>
+          <div id="timeline-joint-tracks" role="group" aria-label="Joint tracks" hidden={!expanded}>
+            {expanded &&
+              rows.slice(1).map((row) => {
+                const joint = row.joint!
+                const selected = selectedJoints.has(joint)
+                return (
+                  <button
+                    key={row.id}
+                    type="button"
+                    className="selection-tint relative isolate block w-full truncate border-t border-line pr-2 text-left text-muted hover:bg-control hover:text-ink"
+                    style={{ height: TRACK_HEIGHT, paddingLeft: 18 + Math.min(10, row.depth) * 10 }}
+                    data-timeline-track
+                    aria-pressed={selected}
+                    title={row.name}
+                    onClick={() => {
+                      if (!character) return
+                      activateRow(row.id)
+                      selectJoints([{ characterId: character.id, joint }])
+                    }}
+                    onKeyDown={(event) => handleTimelineKey(event, row.id)}
+                  >
+                    {row.name}
+                  </button>
+                )
+              })}
+          </div>
         </div>
       </div>
       <canvas
-        key={clipId}
         ref={canvas}
         tabIndex={0}
-        aria-label={`Timeline, frame ${frame}. Use arrows to seek, Shift and arrows to select, or brackets to set work area bounds.`}
-        className="block h-full min-h-0 w-full touch-none cursor-crosshair bg-timeline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
-        onKeyDown={(e) => {
-          if (e.key === '[' || e.key === ']') {
-            e.preventDefault()
-            useUi.getState().setWorkArea({
-              clipId,
-              start: e.key === '[' ? Math.min(frame, workEnd) : workStart,
-              end: e.key === ']' ? Math.max(frame, workStart) : workEnd,
-            })
-          }
-          if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
-          e.preventDefault()
-          const next = clamp(
-            (e.shiftKey && range ? range.edge : frame) + (e.key === 'ArrowLeft' ? -1 : 1),
-          )
-          if (e.shiftKey) selectRange(range?.anchor ?? frame, next)
-          else seek(next)
+        aria-label="Timeline frames"
+        aria-description={`Frame ${frame}.${rangeDescription} Use arrows to seek, Shift and arrows to select, comma and period to jump between keys, or brackets to set work area bounds.`}
+        className="block h-full min-h-0 w-full touch-none cursor-crosshair bg-timeline outline-none"
+        onKeyDown={(e) => handleTimelineKey(e, keyboardRow.id)}
+        onWheel={(e) => {
+          const list = trackList.current
+          if (!list || e.ctrlKey || e.metaKey) return
+          const scale = e.deltaMode === 1 ? TRACK_HEIGHT : e.deltaMode === 2 ? list.clientHeight : 1
+          list.scrollTop += e.deltaY * scale
         }}
         onPointerDown={(e) => {
           if (e.button !== 0 || !e.isPrimary) return
           e.preventDefault()
-          e.currentTarget.blur()
+          e.currentTarget.focus({ preventScroll: true })
           const rect = e.currentTarget.getBoundingClientRect()
           const anchor = frameAt(e.clientX, rect)
           const mode = modeAt(e.clientX, e.clientY, rect)
+          const row = timelineRowAt(
+            rows,
+            e.clientY - rect.top - HEADER,
+            trackList.current?.scrollTop ?? 0,
+          )
+          const pointer = e.pointerId
+          if (mode === 'select' && row) {
+            gesture.current = { pointer, anchor, mode, rowId: row.id }
+            activateRow(row.id)
+            selectRange(row.id, anchor, anchor)
+            seek(anchor)
+          } else if (mode === 'scrub') {
+            gesture.current = { pointer, anchor, mode }
+            seek(anchor)
+          } else if (mode !== 'select') {
+            gesture.current = { pointer, anchor, mode, workStart, workEnd }
+          }
           e.currentTarget.style.cursor = cursorFor(mode, true)
-          gesture.current = { pointer: e.pointerId, anchor, mode, workStart, workEnd }
-          e.currentTarget.setPointerCapture(e.pointerId)
-          if (mode === 'select') selectRange(anchor, anchor)
-          if (mode === 'select' || mode === 'scrub') seek(anchor)
+          e.currentTarget.setPointerCapture(pointer)
         }}
         onPointerMove={(e) => {
           const drag = gesture.current
@@ -248,7 +425,7 @@ export function Timeline() {
           const setWorkArea = useUi.getState().setWorkArea
           switch (drag.mode) {
             case 'select':
-              selectRange(drag.anchor, edge)
+              selectRange(drag.rowId, drag.anchor, edge)
               break
             case 'scrub':
               seek(edge)
@@ -269,13 +446,25 @@ export function Timeline() {
             }
           }
         }}
+        onPointerUp={(e) => {
+          const drag = gesture.current
+          if (drag?.mode !== 'select' || drag.pointer !== e.pointerId) return
+          const edge = frameAt(e.clientX, e.currentTarget.getBoundingClientRect())
+          selectRange(drag.rowId, drag.anchor, edge)
+        }}
+        onPointerCancel={(e) => {
+          const drag = gesture.current
+          if (drag?.mode === 'select' && drag.pointer === e.pointerId) {
+            useUi.getState().setTimelineRange(null)
+          }
+        }}
         onDoubleClick={(e) => {
           const y = e.clientY - e.currentTarget.getBoundingClientRect().top
           if (y >= RULER && y < HEADER) useUi.getState().setWorkArea(null)
         }}
         title={`Work area ${workStart}–${workEnd}. Drag its handles to trim or double-click to reset.`}
         onLostPointerCapture={(e) => {
-          gesture.current = null
+          if (gesture.current?.pointer === e.pointerId) gesture.current = null
           e.currentTarget.style.cursor = cursorFor(
             modeAt(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect()),
           )
@@ -300,25 +489,29 @@ function ClipSelect({ clips, value }: { clips: Clip[]; value: string | null }) {
         if (!clip) return
         useUi.getState().setPlaying(false)
         useUi.getState().setTimelineRange(null)
+        useUi.getState().setActiveTimelineRow(null)
         editor.setPlayhead({ clipId: clip.id, frame: clip.start })
       }}
       items={clips.map((c) => ({ value: c.id, label: c.name }))}
     >
-      <Select.Trigger
-        aria-label="Clip"
-        className="flex h-[26px] min-w-0 max-w-48 items-center justify-between gap-2 rounded border border-line bg-control px-2 text-ink hover:border-faint"
-      >
-        <Select.Value className="truncate" />
-        <Select.Icon className="text-faint">▾</Select.Icon>
+      <Select.Trigger aria-label="Clip" title="Choose clip" className="shell-icon">
+        <Select.Icon aria-hidden="true">▾</Select.Icon>
       </Select.Trigger>
       <Select.Portal>
-        <Select.Positioner sideOffset={4} className="z-50">
-          <Select.Popup className="min-w-(--anchor-width) rounded border border-line bg-raised py-1 text-[12px] text-ink shadow-xl">
+        <Select.Positioner
+          align="end"
+          side="top"
+          sideOffset={4}
+          alignItemWithTrigger={false}
+          className="z-50"
+        >
+          <Select.Popup className="min-w-32 max-w-64 rounded border border-line bg-raised py-1 text-[12px] text-ink shadow-xl">
             {clips.map((c) => (
               <Select.Item
                 key={c.id}
                 value={c.id}
-                className="cursor-default px-2 py-1 outline-none data-highlighted:bg-line"
+                className="selection-tint relative isolate cursor-default truncate px-2 py-1 outline-none data-highlighted:bg-line data-selected:font-semibold"
+                title={c.name}
               >
                 <Select.ItemText>{c.name}</Select.ItemText>
               </Select.Item>
@@ -330,27 +523,17 @@ function ClipSelect({ clips, value }: { clips: Clip[]; value: string | null }) {
   )
 }
 
-/** Key frames to mark: the selected joints' keys, or every key in the clip when nothing is selected. */
-function keysFor(clip: Clip, joints: Set<number>): number[] {
-  const frames = new Set<number>()
-  for (const track of clip.tracks) {
-    if (joints.size > 0 && !joints.has(track.joint)) continue
-    for (const channel of [track.translations, track.rotations, track.scales]) {
-      for (const frame of channel?.frames ?? []) frames.add(frame)
-    }
-  }
-  return [...frames]
-}
-
 function draw(
   el: HTMLCanvasElement,
   start: number,
   end: number,
   frame: number,
-  keys: number[],
+  rows: readonly TimelineRow[],
+  selectedJoints: ReadonlySet<number>,
   range: TimelineRange | null,
   workStart: number,
   workEnd: number,
+  scrollTop: number,
 ): void {
   const dpr = window.devicePixelRatio
   const width = el.clientWidth
@@ -373,11 +556,12 @@ function draw(
   const step = ([1, 2, 5, 10].find((n) => n * scale >= minStep) ?? 10) * scale
   const minor = Math.max(1, step % 5 === 0 ? step / 5 : step / 2)
   const palette = getComputedStyle(el)
+  ctx.fillStyle = palette.getPropertyValue('--color-timeline')
+  ctx.fillRect(0, HEADER, width, height - HEADER)
   ctx.fillStyle = palette.getPropertyValue('--color-panel')
   ctx.fillRect(0, 0, width, HEADER)
   ctx.fillStyle = palette.getPropertyValue('--color-line')
   ctx.fillRect(0, HEADER - 1, width, 1)
-  for (let y = HEADER + TRACK_HEIGHT; y < height; y += TRACK_HEIGHT) ctx.fillRect(0, y, width, 1)
 
   ctx.font = '10px ui-monospace, SF Mono, Menlo, monospace'
   ctx.textAlign = 'center'
@@ -405,6 +589,7 @@ function draw(
   }
 
   const blue = palette.getPropertyValue('--color-primary').trim()
+  const selectionOpacity = Number(palette.getPropertyValue('--selection-tint-opacity'))
   const stripTop = RULER + 3
   const stripHeight = 9
   const workX = x(workStart)
@@ -416,26 +601,70 @@ function draw(
   ctx.fillStyle = '#969ba6'
   ctx.fillRect(workX - 1, stripTop, 3, stripHeight)
   ctx.fillRect(workRight - 1, stripTop, 3, stripHeight)
-  if (range) {
-    const left = x(Math.min(range.anchor, range.edge))
-    const right = x(Math.max(range.anchor, range.edge))
+  const size = Math.min(4, Math.max(1.5, pxPerFrame / 3))
+  function drawRow(row: TimelineRow, top: number) {
+    if (row.joint !== null) {
+      ctx.fillStyle = palette.getPropertyValue('--color-line')
+      ctx.fillRect(0, top, width, 1)
+    }
     ctx.fillStyle = blue
-    ctx.globalAlpha = 0.14
-    ctx.fillRect(left, HEADER, Math.max(1, right - left), Math.min(TRACK_HEIGHT, height - HEADER))
-    ctx.globalAlpha = 1
+    const mid = top + TRACK_HEIGHT / 2
+    let previousX = -1
+    ctx.beginPath()
+    for (const f of row.frames) {
+      const cx = x(f)
+      if (cx === previousX) continue
+      previousX = cx
+      ctx.moveTo(cx, mid - size)
+      ctx.lineTo(cx + size, mid)
+      ctx.lineTo(cx, mid + size)
+      ctx.lineTo(cx - size, mid)
+      ctx.closePath()
+    }
+    ctx.fill()
+
+    const selected =
+      row.id === 'character'
+        ? rows.length === 1 && selectedJoints.size > 0
+        : row.joint !== null && selectedJoints.has(row.joint)
+    const selectedRange = range?.rowId === row.id ? range : null
+    if (selected) {
+      ctx.save()
+      ctx.globalCompositeOperation = 'multiply'
+      ctx.fillStyle = blue
+      ctx.globalAlpha = selectionOpacity
+      ctx.fillRect(0, top, width, TRACK_HEIGHT)
+      ctx.restore()
+    }
+    if (selectedRange) {
+      const left = x(Math.min(selectedRange.anchor, selectedRange.edge))
+      const right = x(Math.max(selectedRange.anchor, selectedRange.edge))
+      const span = Math.max(1, right - left)
+      ctx.save()
+      ctx.fillStyle = blue
+      ctx.globalAlpha = 0.14
+      ctx.fillRect(left, top, span, TRACK_HEIGHT)
+      ctx.globalAlpha = 1
+      ctx.fillRect(left, top, span, 2)
+      ctx.fillRect(left, top, 1, TRACK_HEIGHT)
+      ctx.fillRect(right, top, 1, TRACK_HEIGHT)
+      ctx.restore()
+    }
   }
 
-  ctx.fillStyle = blue
-  const mid = HEADER + TRACK_HEIGHT / 2
-  const size = Math.min(4, Math.max(1.5, pxPerFrame / 3))
-  for (const f of keys) {
-    const cx = x(f)
+  drawRow(rows[0]!, HEADER)
+  const jointTop = HEADER + TRACK_HEIGHT
+  if (height > jointTop && rows.length > 1) {
+    ctx.save()
     ctx.beginPath()
-    ctx.moveTo(cx, mid - size)
-    ctx.lineTo(cx + size, mid)
-    ctx.lineTo(cx, mid + size)
-    ctx.lineTo(cx - size, mid)
-    ctx.fill()
+    ctx.rect(0, jointTop, width, height - jointTop)
+    ctx.clip()
+    for (let index = 1 + Math.floor(scrollTop / TRACK_HEIGHT); index < rows.length; index++) {
+      const top = HEADER + index * TRACK_HEIGHT - scrollTop
+      if (top >= height) break
+      drawRow(rows[index]!, top)
+    }
+    ctx.restore()
   }
 
   const px = x(frame)

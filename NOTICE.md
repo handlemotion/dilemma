@@ -22,17 +22,38 @@ Any file we take from another project gets a row here in the same pull request t
 
 Runtime dependencies have to be MIT, Apache-2.0, BSD, MPL-2.0, GPL-3.0 or AGPL-3.0. Anything else needs an OK first.
 
-| Package          | License | What we use it for                  |
-| ---------------- | ------- | ----------------------------------- |
-| three            | MIT     | rendering and glTF import           |
-| camera-controls  | MIT     | the viewport camera                 |
-| three-mesh-bvh   | MIT     | picking joints by clicking the mesh |
-| react, react-dom | MIT     | panels and menus                    |
-| @base-ui/react   | MIT     | UI parts like popovers and selects  |
-| zustand          | MIT     | UI state                            |
-| electron         | MIT     | the desktop shell                   |
-| tailwindcss      | MIT     | styling, at build time              |
+| Package          | License    | What we use it for                  |
+| ---------------- | ---------- | ----------------------------------- |
+| three            | MIT        | rendering and glTF import           |
+| camera-controls  | MIT        | the viewport camera                 |
+| three-mesh-bvh   | MIT        | picking joints by clicking the mesh |
+| react, react-dom | MIT        | panels and menus                    |
+| @base-ui/react   | MIT        | UI parts like popovers and selects  |
+| zustand          | MIT        | UI state                            |
+| @pierre/trees    | Apache-2.0 | the Outliner tree                   |
+| electron         | MIT        | the desktop shell                   |
+| tailwindcss      | MIT        | styling, at build time              |
 
 ## Test characters
 
 The skinned characters the import tests use come from the Khronos glTF Sample Assets and aren't in this repository. `pnpm fetch-assets` downloads them into `fixtures/khronos/`, each with its own LICENSE.md.
+
+## Lucide Icons
+
+The Outliner and transform toolbar use Lucide glyphs. The Move glyph is derived from Feather and carries Cole Bemis’s MIT notice. The desktop package includes the complete Lucide license at `licenses/lucide/LICENSE` and the Pierre Trees license and notice at `licenses/pierre-trees/`.
+
+ISC License
+
+Copyright (c) 2026 Lucide Icons and Contributors
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

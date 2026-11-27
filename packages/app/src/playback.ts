@@ -22,11 +22,16 @@ export function usePlayback(): void {
     const fps = clip?.fps ?? PREVIEW_FPS
     const length = end - start + 1
     const startFrame = frame < start || frame >= end ? start : frame
-    const t0 = performance.now()
+    let offset = startFrame - start
+    let lastTick = performance.now()
     let raf = 0
     const tick = (now: number) => {
-      const elapsed = Math.floor(((now - t0) / 1000) * fps)
-      const next = start + ((startFrame - start + elapsed) % length)
+      const ui = useUi.getState()
+      if (!ui.playing) return
+      const elapsed = Math.max(0, now - lastTick) / 1000
+      lastTick = now
+      offset = (offset + elapsed * fps * ui.playbackSpeed) % length
+      const next = start + Math.floor(offset)
       if (clip) editor.setPlayhead({ frame: next })
       else if (useUi.getState().previewFrame !== next) useUi.getState().setPreviewFrame(next)
       raf = requestAnimationFrame(tick)

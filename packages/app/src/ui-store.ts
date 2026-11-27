@@ -1,24 +1,35 @@
-import type { JointRef, Quat } from '@dilemma/core'
+import type { JointRef, TransformKey } from '@dilemma/core'
+import type { TransformMode } from '@dilemma/view'
 import type { CharacterAssets } from '@dilemma/io'
 import { create } from 'zustand'
+import type { TimelineRowId } from './components/timeline-tracks.ts'
 
 export const PREVIEW_END = 120
 export const PREVIEW_FPS = 30
+export const PLAYBACK_SPEEDS = [0.25, 0.5, 1, 1.5, 2] as const
 
-export interface TimelineRange {
+type PlaybackSpeed = (typeof PLAYBACK_SPEEDS)[number]
+
+export interface TimelineRowRef {
   clipId: string | null
+  rowId: TimelineRowId
+}
+
+export interface TimelineRange extends TimelineRowRef {
   anchor: number
   edge: number
 }
 
-export interface RotationDraft {
+export interface TransformDraft {
   joint: JointRef
   frame: number
-  rotation: Quat | null
+  key: TransformKey | null
 }
 
 /** UI and render-resource state. Never document state: that lives in the editor. */
 interface UiState {
+  outlinerFocus: string | null
+  setOutlinerFocus(focus: string | null): void
   dockTab: 'outliner' | 'inspector'
   setDockTab(dockTab: UiState['dockTab']): void
   panelSizes: Partial<Record<'dock' | 'timeline', number>>
@@ -27,13 +38,21 @@ interface UiState {
   setWorkArea(workArea: UiState['workArea']): void
   previewFrame: number
   timelineRange: TimelineRange | null
+  activeTimelineRow: TimelineRowRef | null
+  expandedTimelineCharacterId: string | null
+  setActiveTimelineRow(row: TimelineRowRef | null): void
+  setExpandedTimelineCharacter(id: string | null): void
   setPreviewFrame(frame: number): void
   setTimelineRange(range: TimelineRange | null): void
   playing: boolean
+  playbackSpeed: PlaybackSpeed
+  setPlaybackSpeed(speed: PlaybackSpeed): void
   loading: string | null
   error: string | null
   projectPath: string | null
-  rotationDraft: RotationDraft | null
+  transformMode: TransformMode
+  setTransformMode(mode: TransformMode): void
+  transformDraft: TransformDraft | null
   /** Meshes and bones per character id, from io. */
   assets: ReadonlyMap<string, CharacterAssets>
   fps: number
@@ -41,13 +60,15 @@ interface UiState {
   setLoading(name: string | null): void
   setError(error: string | null): void
   setProjectPath(path: string): void
-  setRotationDraft(draft: RotationDraft | null): void
+  setTransformDraft(draft: TransformDraft | null): void
   addAssets(id: string, assets: CharacterAssets): void
   setAssets(assets: ReadonlyMap<string, CharacterAssets>): void
   setFps(fps: number): void
 }
 
 export const useUi = create<UiState>((set) => ({
+  outlinerFocus: null,
+  setOutlinerFocus: (outlinerFocus) => set({ outlinerFocus }),
   dockTab: 'outliner',
   setDockTab: (dockTab) => set({ dockTab }),
   panelSizes: {},
@@ -56,20 +77,29 @@ export const useUi = create<UiState>((set) => ({
   setWorkArea: (workArea) => set({ workArea, playing: false }),
   previewFrame: 0,
   timelineRange: null,
+  activeTimelineRow: null,
+  expandedTimelineCharacterId: null,
+  setActiveTimelineRow: (activeTimelineRow) => set({ activeTimelineRow }),
+  setExpandedTimelineCharacter: (expandedTimelineCharacterId) =>
+    set({ expandedTimelineCharacterId }),
   setPreviewFrame: (previewFrame) => set({ previewFrame }),
   setTimelineRange: (timelineRange) => set({ timelineRange }),
   playing: false,
+  playbackSpeed: 1,
+  setPlaybackSpeed: (playbackSpeed) => set({ playbackSpeed }),
   loading: null,
   error: null,
   projectPath: null,
-  rotationDraft: null,
+  transformMode: 'rotate',
+  setTransformMode: (transformMode) => set({ transformMode }),
+  transformDraft: null,
   assets: new Map(),
   fps: 0,
   setPlaying: (playing) => set({ playing }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
   setProjectPath: (projectPath) => set({ projectPath }),
-  setRotationDraft: (rotationDraft) => set({ rotationDraft }),
+  setTransformDraft: (transformDraft) => set({ transformDraft }),
   addAssets: (id, assets) => set((s) => ({ assets: new Map(s.assets).set(id, assets) })),
   setAssets: (assets) => set({ assets }),
   setFps: (fps) => set({ fps }),

@@ -28,13 +28,14 @@ There are five packages under `packages/`, and a package only imports the ones b
 8. Key times are integer frames against the clip's fps, never float seconds.
 9. A full pose solve for a 70-joint humanoid takes under 2 ms. A test measures it.
 10. UI state lives in zustand. Document state never does.
+11. Tint selected UI items by multiplying a translucent brand-blue layer over the item and its contents. Keep text, icons, and controls visible under the tint.
 
 ## License and reuse
 
 - A file taken from another AGPL project keeps its copyright line, and the same pull request adds it to `NOTICE.md`.
 - Reused code follows the layer rules too, so nothing that imports React, three.js or Electron goes into `core` or `solve`.
 - Don't use another project's name or mark in the product.
-- Dependencies have to be MIT, Apache-2.0, BSD, MPL-2.0, GPL-3.0 or AGPL-3.0. Ask before adding anything else.
+- Keep required third-party license notices with distributed assets and dependencies.
 - Blender runs as a separate command-line process. Don't copy its code in.
 - The Maya bridge lives in its own folder and links nothing from Autodesk's SDK into the app.
 

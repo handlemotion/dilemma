@@ -3,6 +3,7 @@ import { exportGlb, loadGltf, type CharacterAssets } from '@dilemma/io'
 import { compileClip, compileSkeleton, createPose, solvePose } from '@dilemma/solve'
 import { activeClip } from './animation.ts'
 import { bridge } from './bridge.ts'
+import { rememberBrowserSource } from './browser-session.ts'
 import { editor } from './editor.ts'
 import { useUi } from './ui-store.ts'
 import type { OpenedFile } from '../electron/ipc.ts'
@@ -28,20 +29,29 @@ function fileOperation(activity: string, run: () => Promise<void>): Promise<void
 
 export function importCharacter(file?: File | OpenedFile): Promise<void> {
   return fileOperation('Importing character…', async () => {
-    const opened =
-      file && !(file instanceof File)
-        ? file
-        : file
-          ? bridge
-            ? await bridge.openDroppedFile(file)
-            : { url: URL.createObjectURL(file), name: file.name, path: file.name }
-          : await bridge?.openCharacter()
-    if (!opened) return
-    const imported = await loadGltf(opened.url, { name: opened.name.replace(/\.(glb|gltf)$/i, '') })
-    imported.character.source.uri = opened.path
-    // Assets first, so the viewport has the mesh when the document arrives.
-    useUi.getState().addAssets(imported.character.id, imported.assets)
-    editor.run(addCharacter(imported.character, imported.clips))
+    const browserFile = !bridge && file instanceof File ? file : null
+    const browserUrl = browserFile ? URL.createObjectURL(browserFile) : null
+    try {
+      const opened =
+        file && !(file instanceof File)
+          ? file
+          : file
+            ? bridge
+              ? await bridge.openDroppedFile(file)
+              : { url: browserUrl!, name: file.name, path: file.name }
+            : await bridge?.openCharacter()
+      if (!opened) return
+      const imported = await loadGltf(opened.url, {
+        name: opened.name.replace(/\.(glb|gltf)$/i, ''),
+      })
+      imported.character.source.uri = opened.path
+      // Assets first, so the viewport has the mesh when the document arrives.
+      useUi.getState().addAssets(imported.character.id, imported.assets)
+      if (browserFile) rememberBrowserSource(imported.character.id, browserFile)
+      editor.run(addCharacter(imported.character, imported.clips))
+    } finally {
+      if (browserUrl) URL.revokeObjectURL(browserUrl)
+    }
   })
 }
 
@@ -87,7 +97,7 @@ export function openProject(): Promise<void> {
     const restored = { ...doc, characters }
     const ui = useUi.getState()
     ui.setPlaying(false)
-    ui.setRotationDraft(null)
+    ui.setTransformDraft(null)
     ui.setTimelineRange(null)
     ui.setWorkArea(null)
     ui.setPreviewFrame(0)

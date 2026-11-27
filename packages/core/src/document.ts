@@ -41,6 +41,13 @@ export interface KeyChannel {
   values: number[]
 }
 
+export const TRANSFORM_CHANNELS = ['translations', 'rotations', 'scales'] as const
+export type TransformChannel = (typeof TRANSFORM_CHANNELS)[number]
+export type TransformKey =
+  | { channel: 'translations'; value: Vec3 }
+  | { channel: 'rotations'; value: Quat }
+  | { channel: 'scales'; value: Vec3 }
+
 /** Each channel has its own key times so edits to one preserve the others. */
 export interface JointTrack {
   joint: number

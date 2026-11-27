@@ -8,3 +8,4 @@ export {
   type Pivot,
   type Scrolling,
 } from './rig.ts'
+export type { TransformMode } from './transform-gizmo.ts'

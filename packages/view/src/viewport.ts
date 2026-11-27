@@ -1,4 +1,4 @@
-import type { Character, Clip, EditorState, JointRef, Quat } from '@dilemma/core'
+import type { Character, Clip, EditorState, JointRef, TransformKey } from '@dilemma/core'
 import {
   compileClip,
   compileSkeleton,
@@ -28,7 +28,7 @@ import {
 import { JointOverlay } from './joints.ts'
 import { MeshPicker } from './picking.ts'
 import { framingSphere, Rig, type NavigationPreferences } from './rig.ts'
-import { RotationGizmo, type RotationEvents } from './rotation-gizmo.ts'
+import { TransformGizmo, type TransformEvents, type TransformMode } from './transform-gizmo.ts'
 
 /** Render resources for one character: its scene and one object per joint, in joint order. */
 export interface ViewCharacter {
@@ -36,14 +36,14 @@ export interface ViewCharacter {
   bones: Object3D[]
 }
 
-export interface ViewportEvents extends RotationEvents {
+export interface ViewportEvents extends TransformEvents {
   /** A click in the viewport. `null` means empty space. The app turns this into a selection change. */
   pick(joint: JointRef | null, additive: boolean): void
 }
 
-export interface RotationPreview {
+export interface TransformPreview {
   joint: JointRef
-  rotation: Quat
+  key: TransformKey
 }
 
 interface Entry {
@@ -67,8 +67,8 @@ export class Viewport {
   private scene = new Scene()
   private camera = new PerspectiveCamera(35, 1, 0.01, 1000)
   private rig: Rig
-  private gizmo: RotationGizmo
-  private rotationPreview: RotationPreview | null = null
+  private gizmo: TransformGizmo
+  private transformPreview: TransformPreview | null = null
   private last = performance.now()
   private entries = new Map<string, Entry>()
   private assets: ReadonlyMap<string, ViewCharacter> = new Map()
@@ -98,7 +98,7 @@ export class Viewport {
     this.scene.add(grid)
 
     this.rig = new Rig(this.camera, canvas, () => this.selectionCenter())
-    this.gizmo = new RotationGizmo(this.scene, this.camera, canvas, events)
+    this.gizmo = new TransformGizmo(this.scene, this.camera, canvas, events)
     canvas.addEventListener('pointerdown', this.onPointerDown)
     canvas.addEventListener('pointerup', this.onPointerUp)
     this.resize = new ResizeObserver(() => this.onResize())
@@ -134,8 +134,18 @@ export class Viewport {
     if (!previous || previous.selection !== state.selection) this.paintSelection(state)
   }
 
-  setRotationPreview(preview: RotationPreview | null): void {
-    this.rotationPreview = preview
+  setTransformMode(mode: TransformMode): void {
+    this.gizmo.setMode(mode)
+  }
+
+  setTransformPreview(preview: TransformPreview | null): void {
+    this.transformPreview = preview
+  }
+
+  cancelTransform(): boolean {
+    const cancelled = this.gizmo.cancel()
+    if (cancelled) this.down = null
+    return cancelled
   }
 
   /** Frame the selected joints, or every character when nothing is selected. */
@@ -224,9 +234,10 @@ export class Viewport {
       const compiled =
         clip && clip.characterId === entry.character.id ? this.compiled(clip, entry) : null
       solvePose(entry.skeleton, compiled, playhead?.frame ?? 0, entry.pose)
-      const preview = this.rotationPreview
+      const preview = this.transformPreview
       if (preview?.joint.characterId === entry.character.id) {
-        entry.pose.local.set(preview.rotation, preview.joint.joint * LOCAL_STRIDE + 3)
+        const offset = { translations: 0, rotations: 3, scales: 7 }[preview.key.channel]
+        entry.pose.local.set(preview.key.value, preview.joint.joint * LOCAL_STRIDE + offset)
         computeWorld(entry.skeleton, entry.pose)
       }
       const w = entry.pose.world
@@ -238,7 +249,8 @@ export class Viewport {
     }
     const selected = this.state?.selection.joints
     const joint = selected?.length === 1 ? selected[0]! : null
-    this.gizmo.update(joint, joint ? this.entries.get(joint.characterId)?.pose : undefined)
+    const entry = joint ? this.entries.get(joint.characterId) : undefined
+    this.gizmo.update(joint, entry?.pose, entry?.skeleton)
   }
 
   private compiled(clip: Clip, entry: Entry): CompiledClip {
@@ -269,7 +281,7 @@ export class Viewport {
   private onPointerUp = (event: PointerEvent) => {
     const down = this.down
     this.down = null
-    if (!down || this.rig.active) return
+    if (!down || this.rig.active || this.gizmo.dragging) return
     if (Math.hypot(event.clientX - down.x, event.clientY - down.y) > 4) return
     const rect = this.canvas.getBoundingClientRect()
     this.events.pick(

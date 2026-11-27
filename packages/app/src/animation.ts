@@ -1,11 +1,12 @@
 import {
   addClip,
-  deleteRotationKeys,
+  deleteTransformKeys,
   findCharacter,
-  setRotationKey,
+  setTransformKey,
+  TRANSFORM_CHANNELS,
   type Clip,
   type JointRef,
-  type Quat,
+  type TransformKey,
 } from '@dilemma/core'
 import { compileClip, compileSkeleton, createPose, LOCAL_STRIDE, solvePose } from '@dilemma/solve'
 import { editor } from './editor.ts'
@@ -63,10 +64,10 @@ function keyFrame(joint: JointRef): number {
   return editor.getState().playhead.frame
 }
 
-function keyRotation(joint: JointRef, frame: number, rotation: Quat): void {
+function keyTransform(joint: JointRef, frame: number, key: TransformKey): void {
   const clip = activeClip()
   const target = clip?.characterId === joint.characterId ? clip.id : blankClip(joint.characterId)
-  editor.run(setRotationKey(target, joint.joint, frame, rotation))
+  editor.run(setTransformKey(target, joint.joint, frame, key))
   if (typeof target !== 'string') editor.setPlayhead({ clipId: target.id, frame })
 }
 
@@ -74,8 +75,9 @@ export function keySelection(): void {
   const { doc, selection } = editor.getState()
   const joint = selection.joints.length === 1 ? selection.joints[0] : undefined
   const character = joint && findCharacter(doc, joint.characterId)
-  if (!joint || !character) return
-  useUi.getState().setPlaying(false)
+  const ui = useUi.getState()
+  if (!joint || !character || ui.transformDraft) return
+  ui.setPlaying(false)
   const clip = activeClip()
   const frame = keyFrame(joint)
   const skeleton = compileSkeleton(character.skeleton)
@@ -86,53 +88,79 @@ export function keySelection(): void {
     frame,
     pose,
   )
-  const o = joint.joint * LOCAL_STRIDE + 3
-  keyRotation(joint, frame, [
-    pose.local[o]!,
-    pose.local[o + 1]!,
-    pose.local[o + 2]!,
-    pose.local[o + 3]!,
-  ])
+  const o = joint.joint * LOCAL_STRIDE
+  const local = pose.local
+  const key: TransformKey =
+    ui.transformMode === 'translate'
+      ? { channel: 'translations', value: [local[o]!, local[o + 1]!, local[o + 2]!] }
+      : ui.transformMode === 'scale'
+        ? { channel: 'scales', value: [local[o + 7]!, local[o + 8]!, local[o + 9]!] }
+        : {
+            channel: 'rotations',
+            value: [local[o + 3]!, local[o + 4]!, local[o + 5]!, local[o + 6]!],
+          }
+  keyTransform(joint, frame, key)
 }
 
-export function deleteKeys(): boolean {
+function keyDeletion() {
   const clip = activeClip()
-  if (!clip) return false
-  const { playhead, selection } = editor.getState()
+  if (!clip) return undefined
+  const { doc, playhead, selection } = editor.getState()
   const ui = useUi.getState()
   const range = ui.timelineRange?.clipId === clip.id ? ui.timelineRange : null
   const start = range ? Math.min(range.anchor, range.edge) : playhead.frame
   const end = range ? Math.max(range.anchor, range.edge) : playhead.frame
-  const joints = selection.joints
+  let joints = selection.joints
     .filter((joint) => joint.characterId === clip.characterId)
     .map((joint) => joint.joint)
+  if (range?.rowId === 'character') {
+    joints = clip.tracks.map((track) => track.joint)
+  } else if (range?.rowId.startsWith('joint:')) {
+    const jointId = range.rowId.slice('joint:'.length)
+    const index = findCharacter(doc, clip.characterId)?.skeleton.joints.findIndex(
+      (joint) => joint.id === jointId,
+    )
+    joints = index !== undefined && index >= 0 ? [index] : []
+  }
   if (
     !clip.tracks.some(
       (track) =>
         joints.includes(track.joint) &&
-        track.rotations?.frames.some((frame) => frame >= start && frame <= end),
+        TRANSFORM_CHANNELS.some((channel) =>
+          track[channel]?.frames.some((frame) => frame >= start && frame <= end),
+        ),
     )
   )
-    return false
-  ui.setPlaying(false)
-  editor.run(deleteRotationKeys(clip.id, joints, start, end))
+    return undefined
+  return { clipId: clip.id, joints, start, end }
+}
+
+export function canDeleteKeys(): boolean {
+  return Boolean(keyDeletion())
+}
+
+export function deleteKeys(): boolean {
+  const target = keyDeletion()
+  if (!target) return false
+  useUi.getState().setPlaying(false)
+  editor.run(deleteTransformKeys(target.clipId, target.joints, target.start, target.end))
   return true
 }
 
-export function beginRotation(joint: JointRef): void {
+export function beginTransform(joint: JointRef): void {
   const ui = useUi.getState()
   ui.setPlaying(false)
-  ui.setRotationDraft({ joint, frame: keyFrame(joint), rotation: null })
+  ui.setTransformDraft({ joint, frame: keyFrame(joint), key: null })
 }
 
-export function previewRotation(rotation: Quat | null): void {
+export function previewTransform(key: TransformKey | null): void {
   const ui = useUi.getState()
-  if (ui.rotationDraft) ui.setRotationDraft({ ...ui.rotationDraft, rotation })
+  if (ui.transformDraft) ui.setTransformDraft({ ...ui.transformDraft, key })
 }
 
-export function finishRotation(commit: boolean): void {
+export function finishTransform(commit: boolean): void {
   const ui = useUi.getState()
-  const draft = ui.rotationDraft
-  ui.setRotationDraft(null)
-  if (commit && draft?.rotation) keyRotation(draft.joint, draft.frame, draft.rotation)
+  const draft = ui.transformDraft
+  ui.setTransformDraft(null)
+  if (commit && draft?.key) keyTransform(draft.joint, draft.frame, draft.key)
 }

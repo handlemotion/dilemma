@@ -8,6 +8,7 @@
   --color-raised: #ffffff;
   --color-control: #f0f1f4;
   --color-control-hover: #e7e9ee;
+  --color-control-divider: #dfe1e7;
   --color-line: #e9eaf0;
   --color-ink: #22242b;
   --color-muted: #565b68;
@@ -15,6 +16,7 @@
   --color-accent: var(--color-primary);
   --color-primary: #4c94fa;
   --color-primary-hover: #3988f4;
+  --selection-tint-opacity: 0.18;
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
 }
@@ -64,6 +66,18 @@ body {
 
   .shell-action {
     @apply inline-flex h-[26px] shrink-0 items-center justify-center rounded-md bg-control px-2 text-muted enabled:hover:bg-control-hover enabled:hover:text-ink disabled:text-faint;
+  }
+
+  .selection-tint:is([data-tinted], [data-selected], [aria-pressed='true'])::after {
+    position: absolute;
+    z-index: 1;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--color-primary);
+    opacity: var(--selection-tint-opacity);
+    mix-blend-mode: multiply;
+    pointer-events: none;
+    content: '';
   }
 
   :where(button, [role='combobox']):focus-visible {

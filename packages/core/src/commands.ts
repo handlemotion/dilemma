@@ -1,4 +1,14 @@
-import type { Character, Clip, DilemmaDocument, JointTrack, Quat } from './document.ts'
+import {
+  TRANSFORM_CHANNELS,
+  type Character,
+  type Clip,
+  type DilemmaDocument,
+  type JointTrack,
+  type KeyChannel,
+  type Quat,
+  type TransformChannel,
+  type TransformKey,
+} from './document.ts'
 
 /**
  * Every change to the document is a command. `apply` returns the next
@@ -70,17 +80,79 @@ export function addClip(clip: Clip): Command {
   })
 }
 
+const channelLabel = {
+  translations: 'translation',
+  rotations: 'rotation',
+  scales: 'scale',
+} satisfies Record<TransformChannel, string>
+
+export function setTransformKey(
+  target: Clip | string,
+  joint: number,
+  frame: number,
+  key: TransformKey,
+): Command {
+  const id = typeof target === 'string' ? target : target.id
+  return editClip(id, `Set ${channelLabel[key.channel]} key`, (current) => {
+    const clip = current ?? (typeof target === 'string' ? undefined : target)
+    if (!clip) throw new Error(`No clip ${id}.`)
+    if (!Number.isInteger(frame) || frame < clip.start || frame > clip.end) {
+      throw new Error('The key must be on an integer frame within the clip.')
+    }
+    if (!key.value.every(Number.isFinite)) throw new Error('The key values must be finite.')
+    const tracks = [...clip.tracks]
+    const index = tracks.findIndex((track) => track.joint === joint)
+    const track = tracks[index]
+    const frames = [...(track?.[key.channel]?.frames ?? [])]
+    const values = [...(track?.[key.channel]?.values ?? [])]
+    const first = frames.findIndex((existing) => existing >= frame)
+    const offset = first < 0 ? frames.length : first
+    const count = frames[offset] === frame ? 1 : 0
+    const size = key.value.length
+    frames.splice(offset, count, frame)
+    values.splice(offset * size, count * size, ...key.value)
+    tracks[index < 0 ? tracks.length : index] = {
+      ...track,
+      joint,
+      [key.channel]: { frames, values },
+    }
+    return { ...clip, tracks }
+  })
+}
+
 export function setRotationKey(
   target: Clip | string,
   joint: number,
   frame: number,
   rotation: Quat,
 ): Command {
-  const id = typeof target === 'string' ? target : target.id
-  return editClip(id, 'Set rotation key', (current) => {
-    const clip = current ?? (typeof target === 'string' ? undefined : target)
+  return setTransformKey(target, joint, frame, { channel: 'rotations', value: rotation })
+}
+
+export function deleteTransformKeys(
+  id: string,
+  joints: number[],
+  start: number,
+  end: number,
+  channels: readonly TransformChannel[] = TRANSFORM_CHANNELS,
+): Command {
+  const label = channels.length === 1 ? `Delete ${channelLabel[channels[0]!]} keys` : 'Delete keys'
+  const jointSet = new Set(joints)
+  return editClip(id, label, (clip) => {
     if (!clip) throw new Error(`No clip ${id}.`)
-    return editRotation(clip, joint, frame, rotation)
+    const tracks = clip.tracks.flatMap((track): JointTrack[] => {
+      if (!jointSet.has(track.joint)) return [track]
+      const next = { ...track }
+      for (const name of channels) {
+        const channel = track[name]
+        if (!channel) continue
+        const kept = outsideRange(channel, name === 'rotations' ? 4 : 3, start, end)
+        if (kept) next[name] = kept
+        else delete next[name]
+      }
+      return next.translations || next.rotations || next.scales ? [next] : []
+    })
+    return { ...clip, tracks }
   })
 }
 
@@ -90,52 +162,26 @@ export function deleteRotationKeys(
   start: number,
   end: number,
 ): Command {
-  return editClip(id, 'Delete rotation keys', (clip) => {
-    if (!clip) throw new Error(`No clip ${id}.`)
-    const tracks = clip.tracks.flatMap((track): JointTrack[] => {
-      if (!joints.includes(track.joint) || !track.rotations) return [track]
-      const { frames, values } = track.rotations
-      const kept = frames.filter((frame) => frame < start || frame > end)
-      if (kept.length === frames.length) return [track]
-      if (kept.length === 0) {
-        const { joint, translations, scales } = track
-        return translations || scales
-          ? [{ joint, ...(translations && { translations }), ...(scales && { scales }) }]
-          : []
-      }
-      return [
-        {
-          ...track,
-          rotations: {
-            frames: kept,
-            values: values.filter((_, index) => {
-              const frame = frames[Math.floor(index / 4)]!
-              return frame < start || frame > end
-            }),
-          },
-        },
-      ]
-    })
-    return { ...clip, tracks }
-  })
+  return deleteTransformKeys(id, joints, start, end, ['rotations'])
 }
 
-function editRotation(clip: Clip, joint: number, frame: number, rotation: Quat): Clip {
-  if (!Number.isInteger(frame) || frame < clip.start || frame > clip.end) {
-    throw new Error('The key must be on an integer frame within the clip.')
+function outsideRange(
+  channel: KeyChannel,
+  stride: number,
+  start: number,
+  end: number,
+): KeyChannel | undefined {
+  const { frames, values } = channel
+  const kept = frames.filter((frame) => frame < start || frame > end)
+  if (kept.length === frames.length) return channel
+  if (kept.length === 0) return undefined
+  return {
+    frames: kept,
+    values: values.filter((_, index) => {
+      const frame = frames[Math.floor(index / stride)]!
+      return frame < start || frame > end
+    }),
   }
-  const tracks = [...clip.tracks]
-  const index = tracks.findIndex((track) => track.joint === joint)
-  const track = tracks[index]
-  const frames = [...(track?.rotations?.frames ?? [])]
-  const values = [...(track?.rotations?.values ?? [])]
-  const first = frames.findIndex((key) => key >= frame)
-  const key = first < 0 ? frames.length : first
-  const count = frames[key] === frame ? 1 : 0
-  frames.splice(key, count, frame)
-  values.splice(key * 4, count * 4, ...rotation)
-  tracks[index < 0 ? tracks.length : index] = { ...track, joint, rotations: { frames, values } }
-  return { ...clip, tracks }
 }
 
 function editClip(

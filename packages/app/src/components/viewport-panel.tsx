@@ -1,6 +1,6 @@
 import { Viewport } from '@dilemma/view'
 import { useEffect, useRef } from 'react'
-import { beginRotation, finishRotation, previewRotation, selectJoints } from '../animation.ts'
+import { beginTransform, finishTransform, previewTransform, selectJoints } from '../animation.ts'
 import { editor } from '../editor.ts'
 import { navigationOf, usePreferences } from '../preferences.ts'
 import { useUi } from '../ui-store.ts'
@@ -39,9 +39,9 @@ export function ViewportPanel() {
             : [...joints, joint],
         )
       },
-      rotationStart: beginRotation,
-      rotationChange: previewRotation,
-      rotationEnd: finishRotation,
+      transformStart: beginTransform,
+      transformChange: previewTransform,
+      transformEnd: finishTransform,
     })
     current = viewport
     // lets a script drive the viewport when the app is checked without a person
@@ -49,26 +49,26 @@ export function ViewportPanel() {
     viewport.setNavigation(navigationOf(usePreferences.getState()))
     const offPreferences = usePreferences.subscribe((p) => viewport.setNavigation(navigationOf(p)))
     viewport.setAssets(useUi.getState().assets)
+    viewport.setTransformMode(useUi.getState().transformMode)
     let previous = editor.getState()
     viewport.setState(previous)
     const offEditor = editor.subscribe((state) => {
       if (
-        useUi.getState().rotationDraft &&
-        (state.doc !== previous.doc ||
-          state.playhead !== previous.playhead ||
-          state.selection !== previous.selection)
+        state.doc !== previous.doc ||
+        state.playhead !== previous.playhead ||
+        state.selection !== previous.selection
       )
-        finishRotation(false)
+        viewport.cancelTransform()
       previous = state
       viewport.setState(state)
     })
     const offUi = useUi.subscribe((ui, prev) => {
       if (ui.assets !== prev.assets) viewport.setAssets(ui.assets)
-      if (ui.rotationDraft !== prev.rotationDraft) {
-        const draft = ui.rotationDraft
-        viewport.setRotationPreview(
-          draft?.rotation ? { joint: draft.joint, rotation: draft.rotation } : null,
-        )
+      if (ui.transformMode !== prev.transformMode) viewport.setTransformMode(ui.transformMode)
+      if (ui.playing && !prev.playing) viewport.cancelTransform()
+      if (ui.transformDraft !== prev.transformDraft) {
+        const draft = ui.transformDraft
+        viewport.setTransformPreview(draft?.key ? { joint: draft.joint, key: draft.key } : null)
       }
     })
     const stats = setInterval(() => useUi.getState().setFps(viewport.stats.fps), 500)

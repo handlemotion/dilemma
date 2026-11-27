@@ -5,7 +5,15 @@ import { exportAnimation, importCharacter, openProject, saveProject } from './ac
 import { deleteKeys, keySelection } from './animation.ts'
 import { bridge } from './bridge.ts'
 import { Outliner } from './components/outliner.tsx'
-import { DEFAULT_TIMELINE_HEIGHT, Timeline } from './components/timeline.tsx'
+import { StatusBar } from './components/status-bar.tsx'
+import { Timeline } from './components/timeline.tsx'
+import { TransformTools, transformTools } from './components/transform-tools.tsx'
+import {
+  DEFAULT_TIMELINE_HEIGHT,
+  TRACK_HEIGHT,
+  keyframeInDirection,
+  timelineHeight,
+} from './components/timeline-tracks.ts'
 import { activeViewport, ViewportPanel } from './components/viewport-panel.tsx'
 import { editor, useEditorState } from './editor.ts'
 import { usePlayback } from './playback.ts'
@@ -17,8 +25,15 @@ export function App() {
   const canUndo = useEditorState((s) => s.canUndo)
   const canRedo = useEditorState((s) => s.canRedo)
   const sizes = useUi((s) => s.panelSizes)
+  const timelineCharacter = useEditorState(({ doc, playhead }) => {
+    const clip = doc.clips.find((item) => item.id === playhead.clipId)
+    return doc.characters.find((character) => character.id === clip?.characterId)
+  })
+  const timelineExpanded = useUi((s) => s.expandedTimelineCharacterId === timelineCharacter?.id)
+  const jointCount = timelineCharacter?.skeleton.joints.length ?? 0
+  const timelineMin = DEFAULT_TIMELINE_HEIGHT + (timelineExpanded && jointCount ? TRACK_HEIGHT : 0)
+  const timelineSize = timelineHeight(jointCount, timelineExpanded, sizes.timeline)
   const loading = useUi((s) => s.loading)
-  const error = useUi((s) => s.error)
   const projectPath = useUi((s) => s.projectPath)
   const clipId = useEditorState((s) => s.playhead.clipId)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -29,7 +44,7 @@ export function App() {
       className="grid h-full"
       style={{
         gridTemplateColumns: `minmax(0, 1fr) ${sizes.dock === undefined ? 'clamp(176px, 23vw, 272px)' : `min(${sizes.dock}px, 55vw)`}`,
-        gridTemplateRows: `43px minmax(0, 1fr) min(${sizes.timeline ?? DEFAULT_TIMELINE_HEIGHT}px, max(${DEFAULT_TIMELINE_HEIGHT}px, 55vh))`,
+        gridTemplateRows: `43px minmax(0, 1fr) min(${timelineSize}px, max(${timelineMin}px, 55vh)) 35px`,
       }}
       onDragOver={(e) => {
         e.preventDefault()
@@ -102,6 +117,7 @@ export function App() {
 
       <main className="relative min-h-0 min-w-0 overflow-hidden bg-timeline">
         <ViewportPanel />
+        <TransformTools />
         {dragging && (
           <div
             aria-hidden="true"
@@ -115,21 +131,6 @@ export function App() {
             </p>
           </div>
         )}
-        {error && (
-          <div
-            role="alert"
-            className="absolute top-2 left-2 max-w-md rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-900"
-          >
-            {error}
-            <button
-              type="button"
-              className="ml-3 text-red-800 underline"
-              onClick={() => useUi.getState().setError(null)}
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
       </main>
 
       <aside className="relative flex min-h-0 min-w-0 flex-col border-l border-line bg-panel">
@@ -138,9 +139,10 @@ export function App() {
       </aside>
 
       <div className="relative col-span-full min-h-0 min-w-0">
-        <PanelDivider panel="timeline" label="Resize timeline" min={DEFAULT_TIMELINE_HEIGHT} />
+        <PanelDivider panel="timeline" label="Resize timeline" min={timelineMin} />
         <Timeline />
       </div>
+      <StatusBar />
     </div>
   )
 }
@@ -253,7 +255,7 @@ function DockTabs() {
           Inspector
         </Tabs.Tab>
       </Tabs.List>
-      <Tabs.Panel value="outliner" keepMounted className="min-h-0 flex-1">
+      <Tabs.Panel value="outliner" keepMounted className="min-h-0 flex-1 p-2">
         <Outliner />
       </Tabs.Panel>
       <Tabs.Panel value="inspector" className="min-h-0 flex-1 overflow-auto pt-3">
@@ -326,6 +328,14 @@ function useShortcuts(): void {
         frame: Math.min(clip.end, Math.max(clip.start, playhead.frame + delta)),
       })
     }
+    const seekKeyframe = (direction: -1 | 1) => {
+      const { playhead, doc, selection } = editor.getState()
+      const clip = doc.clips.find((item) => item.id === playhead.clipId)
+      if (!clip) return
+      useUi.getState().setPlaying(false)
+      const frame = keyframeInDirection(clip, playhead.frame, direction, selection.joints)
+      if (frame !== undefined) editor.setPlayhead({ frame })
+    }
     const run = (action: MenuAction) => {
       if (action === 'open') void importCharacter()
       else if (action === 'openProject') void openProject()
@@ -343,6 +353,13 @@ function useShortcuts(): void {
         target instanceof HTMLTextAreaElement)
     const onSpace = (e: KeyboardEvent) => {
       if (e.code !== 'Space' && e.key !== ' ') return
+      if (
+        e.target instanceof Element &&
+        e.target.closest(
+          '[data-timeline-track], [role="combobox"], [role="listbox"], [data-animation-tools]',
+        )
+      )
+        return
       if (isEditing(e.target) || e.isComposing || e.metaKey || e.ctrlKey || e.altKey) return
       e.preventDefault()
       e.stopPropagation()
@@ -353,11 +370,22 @@ function useShortcuts(): void {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || isEditing(e.target)) return
       const mod = e.metaKey || e.ctrlKey
-      if (e.key === 'f' && !mod) run('frame')
-      else if (e.key === 'Escape') editor.select([])
-      else if (e.key.toLowerCase() === 's' && !mod && !e.altKey && !e.repeat) keySelection()
+      const tool =
+        !mod && !e.altKey && !e.isComposing
+          ? transformTools.find(({ shortcut }) => shortcut === e.key.toLowerCase())
+          : undefined
+      if (tool) {
+        e.preventDefault()
+        useUi.getState().setTransformMode(tool.mode)
+      } else if (e.key === 'f' && !mod) run('frame')
+      else if (e.key === 'Escape') {
+        if (!activeViewport()?.cancelTransform()) editor.select([])
+      } else if (e.key.toLowerCase() === 's' && !mod && !e.altKey && !e.repeat) keySelection()
       else if ((e.key === 'Delete' || e.key === 'Backspace') && !mod && deleteKeys()) {
         e.preventDefault()
+      } else if ((e.key === ',' || e.key === '.') && !mod && !e.altKey && !e.isComposing) {
+        e.preventDefault()
+        seekKeyframe(e.key === ',' ? -1 : 1)
       } else if (
         (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
         !(e.target instanceof Element && e.target.closest('[role="tablist"]'))

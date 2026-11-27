@@ -4,7 +4,7 @@ Start with the general shell. It establishes where animators look for tools, sel
 
 ## Workspace
 
-- One connected frame. The top toolbar owns project actions. Use F to frame the selection in the viewport. The right dock owns hierarchy and selection details.
+- One connected frame. The top toolbar owns project actions. Use F to frame the selection in the viewport. The resizable right dock uses Outliner and Inspector tabs for hierarchy and selection details.
 - The timeline runs edge to edge beneath the viewport and dock. The timeline is 81 px tall by default. The transport and timecode share a header with the frame ruler and thin draggable work area. The action row, combined ruler and work-area header, and each track row are 40 px tall. Playback loops over the work area. Double-click the work area strip to reset it. Drag on the ruler to scrub or in the track area to select a frame range. Before a clip is loaded the ruler shows frames 0–120. Contact ranges will need room for labels and trim handles.
 - Use one-pixel dividers between docked regions. Use rounded corners on controls and floating surfaces.
 

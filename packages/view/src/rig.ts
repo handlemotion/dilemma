@@ -5,8 +5,8 @@
 // drei, no flat (orthographic) views, meters and Y up, Maya's Alt drags, and the view turns
 // about the selected joints rather than a model's parts. See NOTICE.md.
 
-// The camera: how it moves under the hand. Fingers moving across a trackpad turn the
-// view, a pinch zooms, and so does a mouse wheel; with Shift held, either pans. A drag
+// The camera: how it moves under the hand. Fingers moving across a trackpad pan the
+// view sideways and vertically, a pinch zooms, and a mouse wheel zooms unless Shift is held to pan. A drag
 // with a mouse's right button, or its middle one, does what the user has said that
 // button does (see navigation.ts); with Alt held, the three buttons drag as in Maya.
 import CameraControls from 'camera-controls'
@@ -24,7 +24,7 @@ import {
 } from 'three'
 import { altDragOf, dragOf, PRESETS, type Button, type Buttons, type Drag } from './navigation.ts'
 import { MAC } from './platform.ts'
-import { SCROLL_PAUSE, scrollSource } from './scroll.ts'
+import { scrollSource } from './scroll.ts'
 
 CameraControls.install({
   THREE: { Vector2, Vector3, Vector4, Quaternion, Matrix4, Spherical, Box3, Sphere, Raycaster },
@@ -64,11 +64,8 @@ export const DEFAULT_NAVIGATION: NavigationPreferences = {
 /** How hard a wheel zooms, against the controls' own pace; and a pinch, against a wheel. */
 const ZOOM = 3
 const PINCH = 2.25
-/** How far the view turns, in radians a pixel, under fingers moving across a trackpad. */
-const SWIPE_TURN = 0.003
-const MAX_SWIPE_DELTA = 18
-/** Seconds for the camera to settle: quick behind a zoom, unhurried for a turn. */
-const SMOOTH = { zoom: 0.1, turn: 0.3 }
+/** Seconds for an explicit Frame Selection transition. */
+const FRAME_SMOOTH_TIME = 0.3
 /** The longest step of time, in seconds, that a single frame moves the camera by. */
 const STEP = 1 / 30
 /** How far a wheel would have to scroll to zoom as a drag does, for each pixel of the drag. */
@@ -112,7 +109,7 @@ export class Rig {
     const controls = new CameraControls(camera, canvas)
     this.controls = controls
     controls.dollyToCursor = true
-    controls.smoothTime = SMOOTH.turn
+    controls.smoothTime = FRAME_SMOOTH_TIME
     controls.draggingSmoothTime = 0
     controls.minDistance = 0.02
     controls.maxDistance = 500
@@ -134,7 +131,7 @@ export class Rig {
   }
 
   frame(sphere: Sphere, animate = true): void {
-    this.controls.smoothTime = SMOOTH.turn
+    this.controls.smoothTime = FRAME_SMOOTH_TIME
     void this.controls.fitToSphere(sphere, animate)
   }
 
@@ -155,12 +152,6 @@ export class Rig {
     this.controls.dollySpeed = ZOOM * zoomSpeed
   }
 
-  /** Turn about the pivot: the selection's middle where that is asked for, else the target. */
-  private orbit(azimuth: number, polar: number, about: Vector3 | null): void {
-    if (about) this.controls.setOrbitPoint(about.x, about.y, about.z)
-    void this.controls.rotate(azimuth, polar, false)
-  }
-
   private pivot(): Vector3 | null {
     return this.preferences.pivot === 'selection' ? this.selectionCenter() : null
   }
@@ -173,10 +164,6 @@ export class Rig {
     const source = scrollSource()
     /** scrolls made here for the controls: not to be read a second time */
     const passed = new WeakSet<Event>()
-    /** when the last pinch came */
-    let pinched = -Infinity
-    /** the swipe under way: when it last moved, and what it turns the view about */
-    const swipe = { at: -Infinity, about: null as Vector3 | null }
     /** the drag that is zooming: where it began, and how far down the window it has got */
     let zooming: { x: number; y: number; last: number } | null = null
 
@@ -186,17 +173,13 @@ export class Rig {
      * controls as a turn of a wheel, so every zoom is the same kind, towards the pointer
      * and within the same limits.
      */
-    const zoom = (delta: number, x: number, y: number, mode = 0, smoothTime = SMOOTH.zoom) => {
-      controls.smoothTime = smoothTime
-      controls.mouseButtons.wheel = ACTION.DOLLY
-      const plain = new WheelEvent('wheel', {
-        deltaY: delta,
-        deltaMode: mode,
-        clientX: x,
-        clientY: y,
-        bubbles: true,
-        cancelable: true,
-      })
+    const sendWheel = (
+      action: typeof ACTION.DOLLY | typeof ACTION.TRUCK,
+      input: WheelEventInit,
+    ) => {
+      controls.smoothTime = 0
+      controls.mouseButtons.wheel = action
+      const plain = new WheelEvent('wheel', { ...input, bubbles: true, cancelable: true })
       passed.add(plain)
       canvas.dispatchEvent(plain)
     }
@@ -233,7 +216,11 @@ export class Rig {
       if (down === 0) return
       // Up the window zooms in, as a wheel turned away does, on where the drag began.
       // (Off a Mac the controls count a wheel's pixels for a third as much.)
-      zoom(down * DRAG_ZOOM * (MAC ? 1 : 3), zooming.x, zooming.y, 0, 0)
+      sendWheel(ACTION.DOLLY, {
+        deltaY: down * DRAG_ZOOM * (MAC ? 1 : 3),
+        clientX: zooming.x,
+        clientY: zooming.y,
+      })
     }
     const lift = () => {
       zooming = null
@@ -241,52 +228,23 @@ export class Rig {
       controls.mouseButtons.left = ACTION.NONE
     }
 
-    const turn = (event: WheelEvent, now: number) => {
-      // one that follows the last without a pause is the same movement
-      if (now - swipe.at > SCROLL_PAUSE) swipe.about = this.pivot()
-      swipe.at = now
-      // Fingers drift as they pinch, and a swipe coasts on after they lift: neither turns
-      // a view that is being zoomed.
-      if (now - pinched < SCROLL_PAUSE) return
-      // Large scroll packets can arrive when macOS accelerates the gesture.
-      const magnitude = Math.hypot(event.deltaX, event.deltaY)
-      const scale = magnitude > MAX_SWIPE_DELTA ? MAX_SWIPE_DELTA / magnitude : 1
-      const rate = SWIPE_TURN * this.preferences.turnSpeed * scale
-      // the view goes the way the fingers do, as it does under a drag
-      this.orbit(-event.deltaX * rate, -event.deltaY * rate, swipe.about)
-    }
-
     const wheel = (event: WheelEvent) => {
       if (passed.has(event)) return
-      const now = performance.now()
-      const { scrolling, wheelReversed } = this.preferences
-      const from =
-        event.ctrlKey || scrolling === 'wheel'
-          ? 'wheel'
-          : scrolling === 'trackpad'
-            ? 'fingers'
-            : source(event, now)
-      if (event.shiftKey) {
-        controls.mouseButtons.wheel = ACTION.TRUCK
-        controls.smoothTime = from === 'fingers' || event.ctrlKey ? 0 : SMOOTH.zoom
-        return
-      }
       swallow(event)
-      // a pinch arrives as a scroll with Ctrl held
-      if (!event.ctrlKey && from === 'fingers') {
-        turn(event, now)
-        return
-      }
-      if (event.ctrlKey) pinched = now
-      // a wheel zooms the other way round for whoever asked: not a pinch, which follows the fingers
-      const way = !event.ctrlKey && wheelReversed ? -1 : 1
-      zoom(
-        event.deltaY * (event.ctrlKey ? PINCH : 1) * way,
-        event.clientX,
-        event.clientY,
-        event.deltaMode,
-        event.ctrlKey ? 0 : SMOOTH.zoom,
-      )
+      const { scrolling, wheelReversed } = this.preferences
+      const pinch = event.ctrlKey
+      const trackpad =
+        scrolling === 'trackpad' ||
+        (scrolling === 'auto' && !pinch && source(event, performance.now()) === 'fingers')
+      const pan = !pinch && (trackpad || event.shiftKey)
+      const zoomDirection = wheelReversed ? -1 : 1
+      sendWheel(pan ? ACTION.TRUCK : ACTION.DOLLY, {
+        deltaX: pan ? event.deltaX : 0,
+        deltaY: event.deltaY * (pan ? 1 : pinch ? PINCH : zoomDirection),
+        deltaMode: event.deltaMode,
+        clientX: event.clientX,
+        clientY: event.clientY,
+      })
     }
 
     // capturing, one element up: these run before the controls' own listeners on the canvas

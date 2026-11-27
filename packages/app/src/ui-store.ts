@@ -12,7 +12,9 @@ export interface TimelineRange {
 
 /** UI and render-resource state. Never document state: that lives in the editor. */
 interface UiState {
-  panelSizes: Partial<Record<'dock' | 'timeline' | 'inspector', number>>
+  dockTab: 'outliner' | 'inspector'
+  setDockTab(dockTab: UiState['dockTab']): void
+  panelSizes: Partial<Record<'dock' | 'timeline', number>>
   setPanelSize(panel: keyof UiState['panelSizes'], size: number | undefined): void
   workArea: { clipId: string | null; start: number; end: number } | null
   setWorkArea(workArea: UiState['workArea']): void
@@ -34,6 +36,8 @@ interface UiState {
 }
 
 export const useUi = create<UiState>((set) => ({
+  dockTab: 'outliner',
+  setDockTab: (dockTab) => set({ dockTab }),
   panelSizes: {},
   setPanelSize: (panel, size) => set((s) => ({ panelSizes: { ...s.panelSizes, [panel]: size } })),
   workArea: null,

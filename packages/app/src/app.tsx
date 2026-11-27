@@ -1,3 +1,4 @@
+import { Tabs } from '@base-ui/react/tabs'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { importCharacter } from './actions.ts'
 import { bridge } from './bridge.ts'
@@ -110,18 +111,7 @@ export function App() {
 
       <aside className="relative flex min-h-0 min-w-0 flex-col border-l border-line bg-panel">
         <PanelDivider panel="dock" label="Resize right dock" vertical min={144} />
-        <Island className="flex-1" title="Outliner">
-          <Outliner />
-        </Island>
-        <div
-          className="relative flex shrink-0 flex-col border-t border-line"
-          style={{ height: `min(${sizes.inspector ?? 70}px, 65%)` }}
-        >
-          <PanelDivider panel="inspector" label="Resize inspector" min={44} />
-          <Island className="flex-1" title="Inspector">
-            <SelectionInfo />
-          </Island>
-        </div>
+        <DockTabs />
       </aside>
 
       <div className="relative col-span-full min-h-0 min-w-0">
@@ -138,7 +128,7 @@ function PanelDivider({
   vertical = false,
   min,
 }: {
-  panel: 'dock' | 'timeline' | 'inspector'
+  panel: 'dock' | 'timeline'
   label: string
   vertical?: boolean
   min: number
@@ -150,13 +140,8 @@ function PanelDivider({
     const rect = target.parentElement!.getBoundingClientRect()
     return vertical ? rect.width : rect.height
   }
-  const resize = (target: HTMLElement, size: number) => {
-    const max =
-      panel === 'dock'
-        ? window.innerWidth * 0.55
-        : panel === 'timeline'
-          ? window.innerHeight * 0.55
-          : (target.parentElement?.parentElement?.clientHeight ?? 0) * 0.65
+  const resize = (size: number) => {
+    const max = (vertical ? window.innerWidth : window.innerHeight) * 0.55
     useUi
       .getState()
       .setPanelSize(panel, Math.round(Math.min(Math.max(min, max), Math.max(min, size))))
@@ -171,7 +156,7 @@ function PanelDivider({
       className={`absolute z-10 touch-none outline-none before:pointer-events-none before:absolute before:content-[''] hover:before:bg-accent data-resizing:before:bg-accent focus-visible:before:bg-accent ${
         vertical
           ? 'inset-y-0 -left-1 w-2 cursor-col-resize before:inset-y-0 before:left-[3px] before:w-px'
-          : `inset-x-0 -top-1 h-2 cursor-row-resize before:inset-x-0 before:h-px ${panel === 'timeline' ? 'before:top-1' : 'before:top-[3px]'}`
+          : `inset-x-0 -top-1 h-2 cursor-row-resize before:inset-x-0 before:h-px before:top-1`
       }`}
       onPointerDown={(event) => {
         if (event.button !== 0 || !event.isPrimary) return
@@ -192,7 +177,7 @@ function PanelDivider({
         const delta = drag.current.origin - current
         if (!drag.current.moved && Math.abs(delta) < 3) return
         drag.current.moved = true
-        resize(event.currentTarget, drag.current.size + delta)
+        resize(drag.current.size + delta)
       }}
       onPointerUp={(event) => {
         if (drag.current?.pointer !== event.pointerId) return
@@ -215,18 +200,43 @@ function PanelDivider({
         const shrink = vertical ? 'ArrowRight' : 'ArrowDown'
         if (event.key !== grow && event.key !== shrink) return
         event.preventDefault()
-        resize(event.currentTarget, sizeOf(event.currentTarget) + (event.key === grow ? 16 : -16))
+        resize(sizeOf(event.currentTarget) + (event.key === grow ? 16 : -16))
       }}
     />
   )
 }
 
-function Island(props: { title: string; className?: string; children: ReactNode }) {
+function DockTabs() {
+  const active = useUi((s) => s.dockTab)
+  const tabClass =
+    'relative -mb-px h-8 border-r border-b border-line px-3 text-muted hover:bg-control hover:text-ink data-active:border-b-panel data-active:bg-panel data-active:font-semibold data-active:text-ink'
+
   return (
-    <section className={`flex min-h-0 flex-col overflow-hidden bg-panel ${props.className ?? ''}`}>
-      <h2 className="shrink-0 p-3 font-semibold text-ink">{props.title}</h2>
-      <div className="min-h-0 flex-1">{props.children}</div>
-    </section>
+    <Tabs.Root
+      value={active}
+      onValueChange={(value) => {
+        if (value === 'outliner' || value === 'inspector') useUi.getState().setDockTab(value)
+      }}
+      className="flex min-h-0 flex-1 flex-col"
+    >
+      <Tabs.List
+        aria-label="Right dock"
+        className="flex shrink-0 items-end border-b border-line bg-timeline"
+      >
+        <Tabs.Tab value="outliner" className={tabClass}>
+          Outliner
+        </Tabs.Tab>
+        <Tabs.Tab value="inspector" className={tabClass}>
+          Inspector
+        </Tabs.Tab>
+      </Tabs.List>
+      <Tabs.Panel value="outliner" keepMounted className="min-h-0 flex-1">
+        <Outliner />
+      </Tabs.Panel>
+      <Tabs.Panel value="inspector" className="min-h-0 flex-1 overflow-auto pt-3">
+        <SelectionInfo />
+      </Tabs.Panel>
+    </Tabs.Root>
   )
 }
 
@@ -318,8 +328,11 @@ function useShortcuts(): void {
       const mod = e.metaKey || e.ctrlKey
       if (e.key === 'f' && !mod) run('frame')
       else if (e.key === 'Escape') editor.select([])
-      else if (e.key === 'ArrowLeft') step(-1)
-      else if (e.key === 'ArrowRight') step(1)
+      else if (
+        (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
+        !(e.target instanceof Element && e.target.closest('[role="tablist"]'))
+      )
+        step(e.key === 'ArrowLeft' ? -1 : 1)
       else if (!bridge && mod && e.key === 'z') run(e.shiftKey ? 'redo' : 'undo')
     }
     window.addEventListener('keydown', onSpace, true)

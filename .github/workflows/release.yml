@@ -63,6 +63,8 @@ jobs:
             : "${APPLE_TEAM_ID:?Set the Apple Team ID secret}"
             builder_args+=(--config.forceCodeSigning=true --config.mac.notarize=true)
           else
+            # Electron Builder treats an empty CSC_LINK as a certificate path.
+            unset CSC_LINK CSC_KEY_PASSWORD
             builder_args+=(--config.mac.identity=- --config.mac.hardenedRuntime=false --config.mac.notarize=false)
           fi
           pnpm --filter @dilemma/app run package:release "${builder_args[@]}"

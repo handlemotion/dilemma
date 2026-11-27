@@ -98,6 +98,7 @@ const menu = (event: Event) => event.preventDefault()
 export class Rig {
   readonly controls: CameraControls
   private preferences: NavigationPreferences = DEFAULT_NAVIGATION
+  private locked = false
   private stopListening: () => void
 
   constructor(
@@ -125,12 +126,24 @@ export class Rig {
     this.apply()
   }
 
+  setLocked(locked: boolean): void {
+    if (this.locked === locked) return
+    this.locked = locked
+    this.controls.enabled = !locked
+    if (locked) {
+      const position = this.controls.getPosition(new Vector3(), false)
+      const target = this.controls.getTarget(new Vector3(), false)
+      void this.controls.setLookAt(position.x, position.y, position.z, target.x, target.y, target.z)
+    }
+  }
+
   /** Move the camera by a frame's worth. Returns whether it moved. */
   update(delta: number): boolean {
     return this.controls.update(Math.min(delta, STEP))
   }
 
   frame(sphere: Sphere, animate = true): void {
+    if (this.locked) return
     this.controls.smoothTime = FRAME_SMOOTH_TIME
     void this.controls.fitToSphere(sphere, animate)
   }
@@ -185,6 +198,7 @@ export class Rig {
     }
 
     const press = (event: PointerEvent) => {
+      if (this.locked) return
       const button = buttonOf(event)
       if (!button) return
       if (button === 'left' && !event.altKey) {
@@ -209,7 +223,7 @@ export class Rig {
       }
     }
     const drag = (event: PointerEvent) => {
-      if (!zooming) return
+      if (!zooming || this.locked) return
       // Alt+right in Maya zooms left and right as well as up and down.
       const down = event.clientY - zooming.last - (event.altKey ? event.movementX : 0)
       zooming.last = event.clientY
@@ -224,13 +238,14 @@ export class Rig {
     }
     const lift = () => {
       zooming = null
-      controls.enabled = true
+      controls.enabled = !this.locked
       controls.mouseButtons.left = ACTION.NONE
     }
 
     const wheel = (event: WheelEvent) => {
       if (passed.has(event)) return
       swallow(event)
+      if (this.locked) return
       const { scrolling, wheelReversed } = this.preferences
       const pinch = event.ctrlKey
       const trackpad =

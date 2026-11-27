@@ -41,7 +41,7 @@ export class Editor {
     this.state = {
       doc,
       selection: { joints: [] },
-      playhead: { clipId: null, frame: 0 },
+      playhead: { clipId: null, frame: doc.sceneTiming.start },
       canUndo: false,
       canRedo: false,
     }
@@ -110,9 +110,12 @@ export class Editor {
     }
     if (patch.doc) {
       next.selection = pruneSelection(next.selection, next.doc)
-      const clipId = next.playhead.clipId
-      if (!clipId || !next.doc.clips.some((c) => c.id === clipId)) {
+      const clip = next.doc.clips.find(({ id }) => id === next.playhead.clipId)
+      if (!clip) {
         next.playhead = firstPlayhead(next.doc)
+      } else {
+        const frame = Math.min(clip.end, Math.max(clip.start, next.playhead.frame))
+        if (frame !== next.playhead.frame) next.playhead = { clipId: clip.id, frame }
       }
     }
     this.state = next
@@ -122,7 +125,9 @@ export class Editor {
 
 function firstPlayhead(doc: DilemmaDocument): Playhead {
   const clip = doc.clips[0]
-  return clip ? { clipId: clip.id, frame: clip.start } : { clipId: null, frame: 0 }
+  return clip
+    ? { clipId: clip.id, frame: clip.start }
+    : { clipId: null, frame: doc.sceneTiming.start }
 }
 
 function pruneSelection(selection: Selection, doc: DilemmaDocument): Selection {

@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { MenuAction } from '../electron/ipc.ts'
 import { exportAnimation, importCharacter, openProject, saveProject } from './actions.ts'
 import { deleteKeys, keySelection } from './animation.ts'
 import { bridge } from './bridge.ts'
+import { AppMenuBar } from './components/app-menu-bar.tsx'
 import { Inspector } from './components/inspector.tsx'
 import { Outliner } from './components/outliner.tsx'
-import { PanelHeader } from './components/panel-header.tsx'
+import { PanelContent, PanelDropTarget, PanelHeader } from './components/panel-header.tsx'
 import { StatusBar } from './components/status-bar.tsx'
 import { Timeline } from './components/timeline.tsx'
 import { AnimationActions, TransformTools, transformTools } from './components/transform-tools.tsx'
@@ -16,24 +17,39 @@ import {
   timelineHeight,
 } from './components/timeline-tracks.ts'
 import { activeViewport, ViewportPanel } from './components/viewport-panel.tsx'
+import { ViewportToolbar } from './components/viewport-tools.tsx'
+import { dockSide, panelTitles, type DockPanel, type DockSide } from './dock-layout.ts'
 import { editor, useEditorState } from './editor.ts'
-import { Icon, type IconName } from './icons/central.tsx'
 import { usePlayback } from './playback.ts'
-import { PREVIEW_END, useUi } from './ui-store.ts'
+import { useUi } from './ui-store.ts'
 
 const SIDE_PANEL_LIMIT = 0.34
 
 export function App() {
+  const fileInput = useRef<HTMLInputElement>(null)
+  const runMenuAction = useCallback((action: MenuAction) => {
+    if (action === 'open') {
+      if (bridge) void importCharacter()
+      else fileInput.current?.click()
+    } else if (action === 'openProject') void openProject()
+    else if (action === 'saveProject' || action === 'saveProjectAs') {
+      void saveProject(action === 'saveProjectAs')
+    } else if (action === 'exportGlb') void exportAnimation()
+    else if (action === 'exportFbx') void exportAnimation('fbx')
+    else if (action === 'undo') editor.undo()
+    else if (action === 'redo') editor.redo()
+    else activeViewport()?.frameSelection()
+  }, [])
   usePlayback()
-  useShortcuts()
-  const canUndo = useEditorState((s) => s.canUndo)
-  const canRedo = useEditorState((s) => s.canRedo)
+  useShortcuts(runMenuAction)
   const sizes = useUi((s) => s.panelSizes)
-  const outlinerWidth =
-    sizes.outliner === undefined ? 'clamp(160px, 20vw, 240px)' : `${sizes.outliner}px`
-  const inspectorWidth =
-    sizes.inspector === undefined ? 'clamp(176px, 23vw, 272px)' : `${sizes.inspector}px`
+  const layout = useUi((s) => s.dockLayout)
+  const panelDragging = useUi((s) => s.draggedPanel !== null)
+  const leftWidth = sizes.left === undefined ? 'clamp(184px, 22vw, 272px)' : `${sizes.left}px`
+  const rightWidth = sizes.right === undefined ? 'clamp(176px, 23vw, 272px)' : `${sizes.right}px`
   const sideLimit = `${SIDE_PANEL_LIMIT * 100}vw`
+  const leftColumn = layout.left.active ? `min(${leftWidth}, ${sideLimit})` : '0px'
+  const rightColumn = layout.right.active ? `min(${rightWidth}, ${sideLimit})` : '0px'
   const timelineCharacter = useEditorState(({ doc, playhead }) => {
     const clip = doc.clips.find((item) => item.id === playhead.clipId)
     return doc.characters.find((character) => character.id === clip?.characterId)
@@ -43,104 +59,89 @@ export function App() {
   const timelineMin = DEFAULT_TIMELINE_HEIGHT + (timelineExpanded && jointCount ? TRACK_HEIGHT : 0)
   const timelineSize = timelineHeight(jointCount, timelineExpanded, sizes.timeline)
   const loading = useUi((s) => s.loading)
-  const projectPath = useUi((s) => s.projectPath)
-  const clipId = useEditorState((s) => s.playhead.clipId)
   const [dragging, setDragging] = useState(false)
 
   return (
     <div
       className="grid h-full"
       style={{
-        gridTemplateColumns: `min(${outlinerWidth}, ${sideLimit}) minmax(0, 1fr) min(${inspectorWidth}, ${sideLimit})`,
-        gridTemplateRows: `43px 40px minmax(0, 1fr) min(${timelineSize}px, max(${timelineMin}px, 55vh)) 35px`,
+        gridTemplateColumns: `${leftColumn} minmax(0, 1fr) ${rightColumn}`,
+        gridTemplateRows: `32px 36px minmax(0, 1fr) min(${timelineSize}px, max(${timelineMin}px, 55vh)) minmax(36px, auto)`,
       }}
       onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return
         e.preventDefault()
         setDragging(true)
       }}
       onDragLeave={() => setDragging(false)}
       onDrop={(e) => {
+        const file = e.dataTransfer.files[0]
+        if (!file) return
         e.preventDefault()
         setDragging(false)
-        const file = e.dataTransfer.files[0]
-        if (file) void importCharacter(file)
+        void importCharacter(file)
       }}
     >
-      <header
-        className={`drag-region relative col-span-full flex items-center gap-2 border-b border-line bg-timeline p-2 ${
-          bridge?.platform === 'darwin' ? 'pl-[76px]' : 'pl-2'
-        }`}
-      >
-        <IconButton
-          onClick={() => editor.undo()}
-          disabled={!canUndo}
-          title="Undo (⌘Z)"
-          icon="undo"
-        />
-        <IconButton
-          onClick={() => editor.redo()}
-          disabled={!canRedo}
-          title="Redo (⇧⌘Z)"
-          icon="redo"
-        />
-        <span
-          className="absolute top-1/2 left-1/2 max-w-1/2 -translate-x-1/2 -translate-y-1/2 truncate font-medium text-muted"
-          title={projectPath ?? undefined}
-        >
-          {projectPath
-            ?.split(/[\\/]/)
-            .pop()
-            ?.replace(/\.dilemma$/i, '') ?? 'Dilemma'}
-        </span>
-        {bridge && (
-          <button
-            type="button"
-            className="shell-action ml-auto"
-            disabled={!clipId || Boolean(loading)}
-            onClick={() => void exportAnimation()}
-          >
-            Export GLB
-          </button>
-        )}
-      </header>
-
-      <AnimationActions />
-      <aside
-        aria-label="Outliner"
-        className="relative flex min-h-0 min-w-0 flex-col border-r border-line bg-panel"
-      >
-        <PanelDivider panel="outliner" label="Resize Outliner" min={144} />
+      <AppMenuBar run={runMenuAction} />
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".glb,.gltf"
+        hidden
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0]
+          if (file) void importCharacter(file)
+          event.currentTarget.value = ''
+        }}
+      />
+      <AnimationActions onImport={() => runMenuAction('open')} />
+      <SidePanel panel="outliner">
         <Outliner />
-      </aside>
+      </SidePanel>
 
-      <main className="relative min-h-0 min-w-0 overflow-hidden bg-timeline">
-        <ViewportPanel />
-        <TransformTools />
-        {dragging && (
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-2 rounded-md border border-dashed border-accent"
+      <main className="relative col-start-2 row-start-3 flex min-h-0 min-w-0 flex-col overflow-hidden bg-timeline">
+        <ViewportToolbar onFrame={() => activeViewport()?.frameSelection()} />
+        <div className="relative min-h-0 flex-1">
+          <ViewportPanel />
+          <TransformTools />
+          {dragging && (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-2 rounded-md border border-dashed border-accent"
+            />
+          )}
+          {loading && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <p role="status" className="rounded-md bg-panel p-3 text-muted">
+                {loading}
+              </p>
+            </div>
+          )}
+        </div>
+        {panelDragging && !layout.left.active && (
+          <PanelDropTarget
+            side="left"
+            drop="stack"
+            label="Dock left"
+            className="absolute inset-y-0 left-0 z-20 w-20"
           />
         )}
-        {loading && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <p role="status" className="rounded-md bg-panel p-3 text-muted">
-              {loading}
-            </p>
-          </div>
+        {panelDragging && !layout.right.active && (
+          <PanelDropTarget
+            side="right"
+            drop="stack"
+            label="Dock right"
+            className="absolute inset-y-0 right-0 z-20 w-20"
+          />
         )}
       </main>
 
-      <aside
-        aria-label="Properties"
-        className="relative flex min-h-0 min-w-0 flex-col border-l border-line bg-panel"
-      >
-        <PanelDivider panel="inspector" label="Resize Inspector" min={144} />
-        <PanelHeader title="Properties" />
-        <div className="min-h-0 flex-1 overflow-auto">
+      <SidePanel panel="inspector">
+        <PanelHeader panel="inspector" />
+        <PanelContent panel="inspector" className="min-h-0 flex-1 overflow-auto">
           <Inspector />
-        </div>
-      </aside>
+        </PanelContent>
+      </SidePanel>
 
       <div className="relative col-span-full min-h-0 min-w-0">
         <PanelDivider panel="timeline" label="Resize timeline" min={timelineMin} />
@@ -151,17 +152,51 @@ export function App() {
   )
 }
 
+function SidePanel({ panel, children }: { panel: DockPanel; children: ReactNode }) {
+  const layout = useUi((s) => s.dockLayout)
+  const dragged = useUi((s) => s.draggedPanel)
+  const side = dockSide(layout, panel)
+  const active = layout[side].active === panel
+  const left = side === 'left'
+  const receivingDrop = active && dragged && dockSide(layout, dragged) !== side
+  return (
+    <aside
+      aria-label={panelTitles[panel]}
+      hidden={!active}
+      className={`relative row-start-3 flex min-h-0 min-w-0 flex-col border-line bg-panel ${left ? 'col-start-1 border-r' : 'col-start-3 border-l'}`}
+    >
+      <PanelDivider
+        panel={side}
+        label={panel === 'outliner' ? 'Resize Outliner' : 'Resize Inspector'}
+        min={144}
+      />
+      {children}
+      {receivingDrop && (
+        <div className={`absolute inset-0 z-20 flex ${left ? '' : 'flex-row-reverse'}`}>
+          <PanelDropTarget side={side} drop="swap" label="Swap" className="w-12 shrink-0" />
+          <PanelDropTarget
+            side={side}
+            drop="stack"
+            label={`Tab with ${panelTitles[panel]}`}
+            className="min-w-0 flex-1"
+          />
+        </div>
+      )}
+    </aside>
+  )
+}
+
 function PanelDivider({
   panel,
   label,
   min,
 }: {
-  panel: 'outliner' | 'inspector' | 'timeline'
+  panel: DockSide | 'timeline'
   label: string
   min: number
 }) {
   const vertical = panel !== 'timeline'
-  const growsRight = panel === 'outliner'
+  const growsRight = panel === 'left'
   const drag = useRef<{ pointer: number; origin: number; size: number; moved: boolean } | null>(
     null,
   )
@@ -235,22 +270,7 @@ function PanelDivider({
   )
 }
 
-function IconButton(props: { onClick(): void; disabled?: boolean; title: string; icon: IconName }) {
-  return (
-    <button
-      type="button"
-      onClick={props.onClick}
-      disabled={props.disabled}
-      title={props.title}
-      aria-label={props.title}
-      className="shell-icon"
-    >
-      <Icon name={props.icon} size={15} />
-    </button>
-  )
-}
-
-function useShortcuts(): void {
+function useShortcuts(run: (action: MenuAction) => void): void {
   useEffect(() => {
     const step = (delta: number) => {
       const { playhead, doc } = editor.getState()
@@ -258,7 +278,8 @@ function useShortcuts(): void {
       const ui = useUi.getState()
       ui.setPlaying(false)
       if (!clip) {
-        ui.setPreviewFrame(Math.min(PREVIEW_END, Math.max(0, ui.previewFrame + delta)))
+        const { start, end } = doc.sceneTiming
+        ui.setPreviewFrame(Math.min(end, Math.max(start, ui.previewFrame + delta)))
         return
       }
       editor.setPlayhead({
@@ -273,16 +294,6 @@ function useShortcuts(): void {
       const frame = keyframeInDirection(clip, playhead.frame, direction, selection.joints)
       if (frame !== undefined) editor.setPlayhead({ frame })
     }
-    const run = (action: MenuAction) => {
-      if (action === 'open') void importCharacter()
-      else if (action === 'openProject') void openProject()
-      else if (action === 'saveProject' || action === 'saveProjectAs') {
-        void saveProject(action === 'saveProjectAs')
-      } else if (action === 'exportGlb') void exportAnimation()
-      else if (action === 'undo') editor.undo()
-      else if (action === 'redo') editor.redo()
-      else activeViewport()?.frameSelection()
-    }
     const isEditing = (target: EventTarget | null) =>
       target instanceof HTMLElement &&
       (target.isContentEditable ||
@@ -293,7 +304,7 @@ function useShortcuts(): void {
       if (
         e.target instanceof Element &&
         e.target.closest(
-          '[data-timeline-track], [role="combobox"], [role="listbox"], [data-animation-tools], button[aria-expanded]',
+          '[data-timeline-track], [data-timeline-footer], [role="combobox"], [role="listbox"], [role="menu"], [data-animation-tools], [data-panel-header], button[aria-expanded]',
         )
       )
         return
@@ -305,7 +316,12 @@ function useShortcuts(): void {
       ui.setPlaying(!ui.playing)
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || isEditing(e.target)) return
+      if (
+        e.defaultPrevented ||
+        isEditing(e.target) ||
+        (e.target instanceof Element && e.target.closest('[role="menu"], [role="menubar"]'))
+      )
+        return
       const mod = e.metaKey || e.ctrlKey
       const tool =
         !mod && !e.altKey && !e.isComposing
@@ -338,5 +354,5 @@ function useShortcuts(): void {
       offMenu?.()
       offOpen?.()
     }
-  }, [])
+  }, [run])
 }

@@ -16,6 +16,13 @@ export interface CompiledSkeleton {
 export interface Pose {
   local: Float64Array
   world: Float64Array
+  ik: {
+    tip: number
+    target: Float64Array
+    applied: boolean
+    fkRotations: Float64Array
+    scratch: ReturnType<typeof createLimbScratch>
+  }
 }
 
 export interface CompiledTrack {
@@ -34,6 +41,7 @@ export interface CompiledClip {
   start: number
   end: number
   tracks: CompiledTrack[]
+  limb: { tip: number; targets: CompiledChannel } | null
 }
 
 export function compileSkeleton(skeleton: Skeleton): CompiledSkeleton {
@@ -57,6 +65,28 @@ export function createPose(skeleton: CompiledSkeleton): Pose {
   return {
     local: new Float64Array(skeleton.count * LOCAL_STRIDE),
     world: new Float64Array(skeleton.count * WORLD_STRIDE),
+    ik: {
+      tip: -1,
+      target: new Float64Array(3),
+      applied: false,
+      fkRotations: new Float64Array(8),
+      scratch: createLimbScratch(),
+    },
+  }
+}
+
+function createLimbScratch() {
+  return {
+    upper: new Float64Array(3),
+    lower: new Float64Array(3),
+    aim: new Float64Array(3),
+    target: new Float64Array(3),
+    normal: new Float64Array(3),
+    bend: new Float64Array(3),
+    elbow: new Float64Array(3),
+    transport: new Float64Array(4),
+    swing: new Float64Array(4),
+    rootDelta: new Float64Array(4),
   }
 }
 
@@ -72,7 +102,9 @@ export function compileClip(clip: Clip, jointCount: number): CompiledClip {
       scales: compileChannel(track.scales, 3),
     }
   })
-  return { start: clip.start, end: clip.end, tracks }
+  const targets = compileChannel(clip.limb?.targets, 3)
+  const limb = clip.limb && targets?.frames.length ? { tip: clip.limb.tip, targets } : null
+  return { start: clip.start, end: clip.end, tracks, limb }
 }
 
 function compileChannel(channel: KeyChannel | undefined, width: number): CompiledChannel | null {

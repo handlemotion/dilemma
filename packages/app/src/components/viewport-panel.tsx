@@ -5,6 +5,7 @@ import { beginTransform, selectJoints } from '../animation.ts'
 import { editor } from '../editor.ts'
 import { navigationOf, usePreferences } from '../preferences.ts'
 import { useUi } from '../ui-store.ts'
+import { ViewportGuides } from './viewport-tools.tsx'
 
 let current: Viewport | null = null
 
@@ -71,6 +72,7 @@ export function ViewportPanel() {
     if (import.meta.env.DEV) Object.assign(window, { __viewport: viewport })
     viewport.setNavigation(navigationOf(usePreferences.getState()))
     const offPreferences = usePreferences.subscribe((p) => viewport.setNavigation(navigationOf(p)))
+    viewport.setDisplay(useUi.getState().viewportSettings)
     viewport.setAssets(useUi.getState().assets)
     viewport.setTransformMode(useUi.getState().transformMode)
     let previous = editor.getState()
@@ -88,15 +90,23 @@ export function ViewportPanel() {
       viewport.setState(state)
     })
     const offUi = useUi.subscribe((ui, prev) => {
+      if (ui.viewportSettings !== prev.viewportSettings) viewport.setDisplay(ui.viewportSettings)
       if (ui.assets !== prev.assets) viewport.setAssets(ui.assets)
       if (ui.transformMode !== prev.transformMode) viewport.setTransformMode(ui.transformMode)
       if ((ui.playing && !prev.playing) || ui.previewFrame !== prev.previewFrame) {
         viewport.cancelTransform()
         if (ui.transformDraft) ui.setTransformDraft(null)
       }
-      if (ui.transformDraft !== prev.transformDraft) {
-        const draft = ui.transformDraft
-        viewport.setTransformPreview(draft?.key ? { joint: draft.joint, key: draft.key } : null)
+      if (
+        ui.transformDraft !== prev.transformDraft ||
+        ui.unkeyedTransforms !== prev.unkeyedTransforms
+      ) {
+        const { transformDraft: draft, unkeyedTransforms } = useUi.getState()
+        viewport.setTransformPreviews(
+          draft?.key
+            ? [...unkeyedTransforms, { joint: draft.joint, key: draft.key }]
+            : unkeyedTransforms,
+        )
       }
     })
     const stats = setInterval(() => useUi.getState().setFps(viewport.stats.fps), 500)
@@ -118,6 +128,7 @@ export function ViewportPanel() {
         className="block h-full w-full outline-none"
         tabIndex={-1}
       />
+      <ViewportGuides />
       {marquee && (
         <div
           aria-hidden="true"

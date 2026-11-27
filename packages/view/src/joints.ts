@@ -31,7 +31,12 @@ export class JointOverlay {
     const count = skeleton.count
     this.dots = new InstancedMesh(
       new SphereGeometry(radius, 10, 6),
-      new MeshBasicMaterial({ depthTest: false, transparent: true, opacity: 0.9 }),
+      new MeshBasicMaterial({
+        allowOverride: false,
+        depthTest: false,
+        transparent: true,
+        opacity: 0.9,
+      }),
       count,
     )
     this.dots.instanceMatrix.setUsage(DynamicDrawUsage)
@@ -47,7 +52,13 @@ export class JointOverlay {
     )
     this.lines = new LineSegments(
       geometry,
-      new LineBasicMaterial({ color: IDLE, depthTest: false, transparent: true, opacity: 0.6 }),
+      new LineBasicMaterial({
+        allowOverride: false,
+        color: IDLE,
+        depthTest: false,
+        transparent: true,
+        opacity: 0.6,
+      }),
     )
     this.lines.renderOrder = 1000
     this.lines.frustumCulled = false

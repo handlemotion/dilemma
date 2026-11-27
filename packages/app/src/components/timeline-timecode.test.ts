@@ -15,6 +15,8 @@ describe('timeline time input', () => {
     expect(parseTimelineTime('1.5s', 24)).toBe(36)
     expect(parseTimelineTime('01:05', 24)).toBe(1560)
     expect(parseTimelineTime(formatTimelineTime(-2410, 24), 24)).toBe(-2410)
+    expect(parseTimelineTime('60s', 29.97)).toBe(1798)
+    expect(parseTimelineTime(formatTimelineTime(1800, 29.97), 29.97)).toBe(1800)
   })
 
   it('rejects incomplete input, invalid components and unsafe frame numbers', () => {

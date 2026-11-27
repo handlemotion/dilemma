@@ -4,7 +4,7 @@
  * rotations as unit quaternions [x, y, z, w]. Key times are integer frames.
  */
 
-export const DOCUMENT_VERSION = 2
+export const DOCUMENT_VERSION = 4
 
 export type Vec3 = [number, number, number]
 export type Quat = [number, number, number, number]
@@ -48,6 +48,19 @@ export type TransformKey =
   | { channel: 'rotations'; value: Quat }
   | { channel: 'scales'; value: Vec3 }
 
+export type PoseKey = TransformKey | { channel: 'ikTarget'; value: Vec3 }
+
+/** One two-bone limb per clip. The target is a world-space position in meters. */
+export interface LimbTrack {
+  tip: number
+  targets: KeyChannel
+}
+
+export function limbRoot(parents: ArrayLike<number>, tip: number): number {
+  const middle = parents[tip] ?? -1
+  return middle < 0 ? -1 : (parents[middle] ?? -1)
+}
+
 /** Each channel has its own key times so edits to one preserve the others. */
 export interface JointTrack {
   joint: number
@@ -65,16 +78,33 @@ export interface Clip {
   start: number
   end: number
   tracks: JointTrack[]
+  limb?: LimbTrack
+}
+
+export type SceneTiming = Pick<Clip, 'fps' | 'start' | 'end'>
+
+export const DEFAULT_SCENE_TIMING: Readonly<SceneTiming> = { fps: 30, start: 0, end: 120 }
+
+export function validSceneTiming({ fps, start, end }: SceneTiming): boolean {
+  return (
+    Number.isFinite(fps) && fps > 0 && (start | 0) === start && (end | 0) === end && start <= end
+  )
 }
 
 export interface DilemmaDocument {
   version: typeof DOCUMENT_VERSION
+  sceneTiming: SceneTiming
   characters: Character[]
   clips: Clip[]
 }
 
 export function emptyDocument(): DilemmaDocument {
-  return { version: DOCUMENT_VERSION, characters: [], clips: [] }
+  return {
+    version: DOCUMENT_VERSION,
+    sceneTiming: { ...DEFAULT_SCENE_TIMING },
+    characters: [],
+    clips: [],
+  }
 }
 
 export function findCharacter(doc: DilemmaDocument, id: string): Character | undefined {

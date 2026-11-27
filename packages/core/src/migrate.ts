@@ -1,4 +1,10 @@
-import { DOCUMENT_VERSION, type DilemmaDocument } from './document.ts'
+import {
+  DEFAULT_SCENE_TIMING,
+  DOCUMENT_VERSION,
+  limbRoot,
+  validSceneTiming,
+  type DilemmaDocument,
+} from './document.ts'
 
 /**
  * One migration per version. `migrations[n]` upgrades a version-n document to
@@ -27,6 +33,9 @@ const migrations: Record<number, (doc: Record<string, unknown>) => Record<string
       }
     }),
   }),
+  // Version 3 adds an optional IK target track. Existing clips are FK.
+  2: (doc) => doc,
+  3: (doc) => ({ ...doc, sceneTiming: { ...DEFAULT_SCENE_TIMING } }),
 }
 
 export class DocumentVersionError extends Error {}
@@ -56,7 +65,9 @@ export function migrate(raw: unknown): DilemmaDocument {
 }
 
 function invalid(): never {
-  throw new DocumentVersionError('The project contains invalid character or animation data.')
+  throw new DocumentVersionError(
+    'The project contains invalid scene, character, or animation data.',
+  )
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -90,17 +101,38 @@ function numbers(value: unknown, length: number): void {
   if (values.length !== length || values.some((number) => !Number.isFinite(number))) invalid()
 }
 
+function validateChannel(raw: unknown, width: number, start: number, end: number): number {
+  const channel = object(raw)
+  const frames = array(channel['frames'])
+  let previous = -Infinity
+  for (const value of frames) {
+    const frame = integer(value)
+    if (frame <= previous || frame < start || frame > end) invalid()
+    previous = frame
+  }
+  numbers(channel['values'], frames.length * width)
+  return frames.length
+}
+
 function validateDocument(doc: Record<string, unknown>): void {
-  const counts = new Map<string, number>()
+  const { fps: sceneFps, start: sceneStart, end: sceneEnd } = object(doc['sceneTiming'])
+  if (
+    typeof sceneFps !== 'number' ||
+    typeof sceneStart !== 'number' ||
+    typeof sceneEnd !== 'number' ||
+    !validSceneTiming({ fps: sceneFps, start: sceneStart, end: sceneEnd })
+  ) {
+    invalid()
+  }
+  const skeletons = new Map<string, number[]>()
   for (const raw of array(doc['characters'])) {
     const character = object(raw)
     const id = string(character['id'])
     string(character['name'])
     string(object(character['source'])['uri'])
     const joints = array(object(character['skeleton'])['joints'])
-    if (counts.has(id) || joints.length === 0) invalid()
-    counts.set(id, joints.length)
-    joints.forEach((rawJoint, index) => {
+    if (skeletons.has(id) || joints.length === 0) invalid()
+    const parents = joints.map((rawJoint, index) => {
       const joint = object(rawJoint)
       string(joint['id'])
       string(joint['name'])
@@ -110,18 +142,20 @@ function validateDocument(doc: Record<string, unknown>): void {
       numbers(rest['translation'], 3)
       numbers(rest['rotation'], 4)
       numbers(rest['scale'], 3)
+      return parent
     })
+    skeletons.set(id, parents)
   }
   const ids = new Set<string>()
   for (const raw of array(doc['clips'])) {
     const clip = object(raw)
     const id = string(clip['id'])
-    const count = counts.get(string(clip['characterId']))
+    const parents = skeletons.get(string(clip['characterId']))
     string(clip['name'])
     const start = integer(clip['start'])
     const end = integer(clip['end'])
     const fps = clip['fps']
-    if (ids.has(id) || !count || end < start || !Number.isFinite(fps) || Number(fps) <= 0) {
+    if (ids.has(id) || !parents || end < start || !Number.isFinite(fps) || Number(fps) <= 0) {
       invalid()
     }
     ids.add(id)
@@ -129,20 +163,17 @@ function validateDocument(doc: Record<string, unknown>): void {
     for (const rawTrack of array(clip['tracks'])) {
       const track = object(rawTrack)
       const joint = integer(track['joint'])
-      if (joint < 0 || joint >= count || joints.has(joint)) invalid()
+      if (joint < 0 || joint >= parents.length || joints.has(joint)) invalid()
       joints.add(joint)
       for (const name of channels) {
         if (track[name] === undefined) continue
-        const channel = object(track[name])
-        const frames = array(channel['frames'])
-        let previous = -Infinity
-        for (const value of frames) {
-          const frame = integer(value)
-          if (frame <= previous || frame < start || frame > end) invalid()
-          previous = frame
-        }
-        numbers(channel['values'], frames.length * (name === 'rotations' ? 4 : 3))
+        validateChannel(track[name], name === 'rotations' ? 4 : 3, start, end)
       }
+    }
+    if (clip['limb'] !== undefined) {
+      const limb = object(clip['limb'])
+      if (limbRoot(parents, integer(limb['tip'])) < 0) invalid()
+      if (!validateChannel(limb['targets'], 3, start, end)) invalid()
     }
   }
 }

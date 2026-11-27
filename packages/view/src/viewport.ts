@@ -1,21 +1,23 @@
-import type { Character, Clip, EditorState, JointRef, TransformKey } from '@dilemma/core'
+import type { Character, Clip, EditorState, JointRef, PoseKey } from '@dilemma/core'
 import {
   compileClip,
+  compilePosePreview,
   compileSkeleton,
-  computeWorld,
   createPose,
-  LOCAL_STRIDE,
   solvePose,
   WORLD_STRIDE,
   type CompiledClip,
   type CompiledSkeleton,
   type Pose,
+  type PosePreview,
 } from '@dilemma/solve'
 import {
   Color,
   DirectionalLight,
   GridHelper,
   HemisphereLight,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
   PerspectiveCamera,
   Raycaster,
   Scene,
@@ -37,7 +39,7 @@ export interface ViewCharacter {
 }
 
 export interface ViewportEvents extends TransformEvents {
-  /** A click in the viewport. `null` means empty space. The app turns this into a selection change. */
+  /** A joint pick in the viewport. `null` means empty space. */
   pick(joint: JointRef | null, additive: boolean): void
   pickBox(joints: JointRef[], additive: boolean): void
   marquee(rect: ViewportMarquee | null): void
@@ -50,17 +52,32 @@ export interface ViewportMarquee {
   height: number
 }
 
+export interface ViewportDisplay {
+  cameraLocked: boolean
+  floorGrid: boolean
+  shading: 'materials' | 'clay' | 'wireframe'
+}
+
 interface SelectionPointer {
   id: number
   x: number
   y: number
   additive: boolean
+  hit: JointRef | null
+  direct: boolean
   dragging: boolean
+}
+
+interface SkeletonHit {
+  ref: JointRef
+  distance: number
+  depth: number
+  dot: boolean
 }
 
 export interface TransformPreview {
   joint: JointRef
-  key: TransformKey
+  key: PoseKey
 }
 
 interface Entry {
@@ -73,6 +90,8 @@ interface Entry {
 }
 
 const PICK_RADIUS_PX = 12
+const BONE_RADIUS_PX = 6
+const DRAG_THRESHOLD_PX = 4
 
 /**
  * Draws the solved pose of the current editor state and turns clicks into
@@ -83,9 +102,12 @@ export class Viewport {
   private renderer: WebGLRenderer
   private scene = new Scene()
   private camera = new PerspectiveCamera(35, 1, 0.01, 1000)
+  private grid = new GridHelper(10, 20, '#c5c8d1', '#dde0e7')
+  private clay = new MeshStandardMaterial({ color: '#a9aeb8', roughness: 0.8 })
+  private wireframe = new MeshBasicMaterial({ color: '#535c6b', wireframe: true })
   private rig: Rig
   private gizmo: TransformGizmo
-  private transformPreview: TransformPreview | null = null
+  private transformPreviews = new Map<string, PosePreview>()
   private last = performance.now()
   private entries = new Map<string, Entry>()
   private assets: ReadonlyMap<string, ViewCharacter> = new Map()
@@ -111,17 +133,11 @@ export class Viewport {
     const key = new DirectionalLight('#ffffff', 2)
     key.position.set(3, 6, 4)
     this.scene.add(key)
-    const grid = new GridHelper(10, 20, '#c5c8d1', '#dde0e7')
-    this.scene.add(grid)
+    this.grid.material.allowOverride = false
+    this.scene.add(this.grid)
 
     this.rig = new Rig(this.camera, canvas, () => this.selectionCenter())
-    this.gizmo = new TransformGizmo(this.scene, this.camera, canvas, {
-      ...events,
-      transformStart: (joint) => {
-        this.clearSelectionPointer()
-        events.transformStart(joint)
-      },
-    })
+    this.gizmo = new TransformGizmo(this.scene, this.camera, canvas, events)
     canvas.addEventListener('pointerdown', this.onPointerDown)
     canvas.addEventListener('pointermove', this.onPointerMove)
     canvas.addEventListener('pointerup', this.onPointerUp)
@@ -145,11 +161,21 @@ export class Viewport {
     this.canvas.removeEventListener('pointercancel', this.onPointerCancel)
     this.canvas.removeEventListener('lostpointercapture', this.onPointerCancel)
     for (const entry of this.entries.values()) this.remove(entry)
+    this.grid.dispose()
+    this.clay.dispose()
+    this.wireframe.dispose()
     this.renderer.dispose()
   }
 
   setNavigation(preferences: NavigationPreferences): void {
     this.rig.setPreferences(preferences)
+  }
+
+  setDisplay({ cameraLocked, floorGrid, shading }: ViewportDisplay): void {
+    this.rig.setLocked(cameraLocked)
+    this.grid.visible = floorGrid
+    this.scene.overrideMaterial =
+      shading === 'clay' ? this.clay : shading === 'wireframe' ? this.wireframe : null
   }
 
   setAssets(assets: ReadonlyMap<string, ViewCharacter>): void {
@@ -161,15 +187,25 @@ export class Viewport {
     const previous = this.state
     this.state = state
     if (!previous || previous.doc !== state.doc) this.sync(state)
-    if (!previous || previous.selection !== state.selection) this.paintSelection(state)
+    if (!previous || previous.selection !== state.selection) {
+      this.paintSelection(state)
+      this.updateGizmo()
+    }
   }
 
   setTransformMode(mode: TransformMode): void {
     this.gizmo.setMode(mode)
   }
 
-  setTransformPreview(preview: TransformPreview | null): void {
-    this.transformPreview = preview
+  setTransformPreviews(previews: readonly TransformPreview[]): void {
+    this.transformPreviews.clear()
+    for (const [id, entry] of this.entries) {
+      const edits = previews
+        .filter(({ joint }) => joint.characterId === id)
+        .map(({ joint, key }) => ({ joint: joint.joint, key }))
+      if (edits.length)
+        this.transformPreviews.set(id, compilePosePreview(entry.skeleton.count, edits))
+    }
   }
 
   cancelTransform(): boolean {
@@ -271,13 +307,13 @@ export class Viewport {
     for (const entry of this.entries.values()) {
       const compiled =
         clip && clip.characterId === entry.character.id ? this.compiled(clip, entry) : null
-      solvePose(entry.skeleton, compiled, playhead?.frame ?? 0, entry.pose)
-      const preview = this.transformPreview
-      if (preview?.joint.characterId === entry.character.id) {
-        const offset = { translations: 0, rotations: 3, scales: 7 }[preview.key.channel]
-        entry.pose.local.set(preview.key.value, preview.joint.joint * LOCAL_STRIDE + offset)
-        computeWorld(entry.skeleton, entry.pose)
-      }
+      solvePose(
+        entry.skeleton,
+        compiled,
+        playhead?.frame ?? 0,
+        entry.pose,
+        this.transformPreviews.get(entry.character.id),
+      )
       const w = entry.pose.world
       entry.assets.bones.forEach((bone, i) => {
         bone.matrixWorld.fromArray(w, i * WORLD_STRIDE)
@@ -285,6 +321,10 @@ export class Viewport {
       })
       entry.overlay.update(entry.pose)
     }
+    this.updateGizmo()
+  }
+
+  private updateGizmo(): void {
     const selected = this.state?.selection.joints
     const joint = selected?.length === 1 ? selected[0]! : null
     const entry = joint ? this.entries.get(joint.characterId) : undefined
@@ -310,32 +350,78 @@ export class Viewport {
   }
 
   private onPointerDown = (event: PointerEvent) => {
-    if (!event.isPrimary || event.button !== 0 || event.altKey || this.gizmo.dragging) return
+    if (
+      !event.isPrimary ||
+      event.button !== 0 ||
+      event.altKey ||
+      this.rig.active ||
+      this.gizmo.dragging ||
+      this.selectionPointer
+    )
+      return
+    const rect = this.canvas.getBoundingClientRect()
+    const hit = this.pickSkeleton(event.clientX - rect.left, event.clientY - rect.top)
+    const canTransform = !event.shiftKey && !event.ctrlKey && !event.metaKey
+    // A press at the center of a joint dot can select it through a nearby gizmo.
+    if (
+      canTransform &&
+      !(hit?.dot && hit.distance <= PICK_RADIUS_PX / 2) &&
+      this.gizmo.grabHandle(event)
+    ) {
+      this.canvas.setPointerCapture(event.pointerId)
+      return
+    }
+    const direct = canTransform && hit !== null
     this.selectionPointer = {
       id: event.pointerId,
       x: event.clientX,
       y: event.clientY,
       additive: event.shiftKey,
+      hit: hit?.ref ?? null,
+      direct,
       dragging: false,
     }
     this.canvas.setPointerCapture(event.pointerId)
+    if (direct) this.events.pick(hit.ref, false)
   }
 
   private onPointerMove = (event: PointerEvent) => {
+    if (this.gizmo.move(event)) return
     const pointer = this.selectionPointer
-    if (pointer?.id !== event.pointerId || this.gizmo.dragging || this.rig.active) return
-    if (!pointer.dragging && Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) <= 4)
+    if (this.gizmo.dragging || this.rig.active) return
+    if (!pointer) {
+      this.gizmo.hover(event)
       return
+    }
+    if (pointer.id !== event.pointerId) return
+    if (!pointer.dragging && !passedDragThreshold(pointer, event)) return
+    if (pointer.direct) {
+      if (pointer.dragging) return
+      pointer.dragging = true
+      const selected = this.state?.selection.joints
+      const joint = selected?.length === 1 ? selected[0] : undefined
+      const hit = pointer.hit
+      if (hit && joint?.characterId === hit.characterId && joint.joint === hit.joint) {
+        // Selection may have changed the active clip since the last render.
+        this.solveAll()
+        if (this.gizmo.grabJoint(pointer.id, pointer.x, pointer.y)) {
+          this.clearSelectionPointer()
+          this.gizmo.move(event)
+        }
+      }
+      return
+    }
     pointer.dragging = true
     this.events.marquee(this.selectionRectangle(pointer, event))
   }
 
   private onPointerUp = (event: PointerEvent) => {
+    if (event.button !== 0 || this.gizmo.finish(event.pointerId)) return
     const pointer = this.selectionPointer
-    if (pointer?.id !== event.pointerId || event.button !== 0) return
+    if (pointer?.id !== event.pointerId) return
     this.clearSelectionPointer()
-    if (this.rig.active || this.gizmo.dragging) return
-    if (pointer.dragging || Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > 4) {
+    if (pointer.direct || this.rig.active || this.gizmo.dragging) return
+    if (pointer.dragging || passedDragThreshold(pointer, event)) {
       this.events.pickBox(
         this.jointsInRectangle(this.selectionRectangle(pointer, event)),
         pointer.additive,
@@ -343,18 +429,20 @@ export class Viewport {
     } else {
       const rect = this.canvas.getBoundingClientRect()
       this.events.pick(
-        this.pickJoint(event.clientX - rect.left, event.clientY - rect.top),
+        pointer.hit ?? this.pickMesh(pointer.x - rect.left, pointer.y - rect.top),
         pointer.additive,
       )
     }
   }
 
   private onPointerCancel = (event: PointerEvent) => {
+    this.gizmo.cancel(event.pointerId)
     if (this.selectionPointer?.id === event.pointerId) this.clearSelectionPointer()
   }
 
   private clearSelectionPointer(): void {
-    if (this.selectionPointer?.dragging) this.events.marquee(null)
+    const pointer = this.selectionPointer
+    if (pointer?.dragging && !pointer.direct) this.events.marquee(null)
     this.selectionPointer = null
   }
 
@@ -394,34 +482,55 @@ export class Viewport {
     return selected
   }
 
-  /** Nearest joint to a point in CSS pixels, within PICK_RADIUS_PX, preferring the one closer to the camera. */
-  private pickJoint(x: number, y: number): JointRef | null {
+  /** Pick the visible joint dots first, then the parent-to-child bone segments. */
+  private pickSkeleton(x: number, y: number): SkeletonHit | null {
     const width = this.canvas.clientWidth
     const height = this.canvas.clientHeight
-    const p = new Vector3()
-    let best: { ref: JointRef; dist: number; depth: number } | null = null
+    const point = new Vector2(x, y)
+    let dot: SkeletonHit | null = null
+    let bone: SkeletonHit | null = null
     for (const entry of this.entries.values()) {
-      for (let j = 0; j < entry.skeleton.count; j++) {
-        p.copy(worldPosition(entry.pose, j)).project(this.camera)
+      const characterId = entry.character.id
+      const projected = Array.from({ length: entry.skeleton.count }, (_, joint) => {
+        const p = worldPosition(entry.pose, joint).project(this.camera)
+        p.x = ((p.x + 1) * width) / 2
+        p.y = ((1 - p.y) * height) / 2
+        return p
+      })
+      for (let joint = 0; joint < projected.length; joint++) {
+        const p = projected[joint]!
         if (p.z < -1 || p.z > 1) continue
-        const sx = ((p.x + 1) / 2) * width
-        const sy = ((1 - p.y) / 2) * height
-        const dist = Math.hypot(sx - x, sy - y)
-        if (dist > PICK_RADIUS_PX) continue
-        if (
-          !best ||
-          dist < best.dist - 2 ||
-          (Math.abs(dist - best.dist) <= 2 && p.z < best.depth)
-        ) {
-          best = { ref: { characterId: entry.character.id, joint: j }, dist, depth: p.z }
+        const distance = Math.hypot(p.x - x, p.y - y)
+        if (distance <= PICK_RADIUS_PX && nearer(dot, distance, p.z)) {
+          dot = { ref: { characterId, joint }, distance, depth: p.z, dot: true }
+        }
+        const parent = entry.skeleton.parents[joint]!
+        const a = projected[parent]
+        if (!a || a.z < -1 || a.z > 1) continue
+        const along = segmentFraction(point, a, p)
+        const depth = a.z + (p.z - a.z) * along
+        const distanceToBone = Math.hypot(
+          x - (a.x + (p.x - a.x) * along),
+          y - (a.y + (p.y - a.y) * along),
+        )
+        if (distanceToBone <= BONE_RADIUS_PX && nearer(bone, distanceToBone, depth)) {
+          // The parent is the joint whose rotation moves this segment.
+          bone = {
+            ref: { characterId, joint: parent },
+            distance: distanceToBone,
+            depth,
+            dot: false,
+          }
         }
       }
     }
-    return best?.ref ?? this.pickMesh(x, y, width, height)
+    return dot ?? bone
   }
 
-  /** The joint that weighs most where the mesh was clicked, when no joint dot was. */
-  private pickMesh(x: number, y: number, width: number, height: number): JointRef | null {
+  /** The joint that weighs most where the mesh was clicked. */
+  private pickMesh(x: number, y: number): JointRef | null {
+    const width = this.canvas.clientWidth
+    const height = this.canvas.clientHeight
     const raycaster = new Raycaster()
     raycaster.setFromCamera(new Vector2((x / width) * 2 - 1, 1 - (y / height) * 2), this.camera)
     let best: { ref: JointRef; distance: number } | null = null
@@ -451,6 +560,26 @@ export class Viewport {
     }
     return count > 0 ? center.divideScalar(count) : null
   }
+}
+
+function passedDragThreshold(pointer: SelectionPointer, event: PointerEvent): boolean {
+  return Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) > DRAG_THRESHOLD_PX
+}
+
+function nearer(hit: SkeletonHit | null, distance: number, depth: number): boolean {
+  return (
+    !hit ||
+    distance < hit.distance - 2 ||
+    (Math.abs(distance - hit.distance) <= 2 && depth < hit.depth)
+  )
+}
+
+function segmentFraction(point: Vector2, a: Vector3, b: Vector3): number {
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const length = dx * dx + dy * dy
+  if (length === 0) return 0
+  return Math.min(1, Math.max(0, ((point.x - a.x) * dx + (point.y - a.y) * dy) / length))
 }
 
 function worldPosition(pose: Pose, joint: number): Vector3 {

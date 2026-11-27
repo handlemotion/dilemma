@@ -47,6 +47,7 @@ export async function restoreBrowserWorkspace(): Promise<void> {
         rememberBrowserSource(id, file)
         ui.addAssets(id, assets)
       }
+      ui.setPreviewFrame(document.sceneTiming.start)
       editor.load(document)
     }
 

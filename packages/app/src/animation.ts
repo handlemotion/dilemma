@@ -1,17 +1,29 @@
 import {
   addClip,
-  deleteTransformKeys,
+  deleteClipKeys,
   findCharacter,
+  setLimbTargetKey,
   setTransformKeys,
   TRANSFORM_CHANNELS,
   type Clip,
   type JointKey,
   type JointRef,
   type TransformKey,
+  type PoseKey,
 } from '@dilemma/core'
-import { compileClip, compileSkeleton, createPose, LOCAL_STRIDE, solvePose } from '@dilemma/solve'
+import {
+  canSolveLimb,
+  compileClip,
+  compilePosePreview,
+  compileSkeleton,
+  createPose,
+  jointPosition,
+  LOCAL_STRIDE,
+  sampleClip,
+  solvePose,
+} from '@dilemma/solve'
 import { editor } from './editor.ts'
-import { PREVIEW_END, PREVIEW_FPS, useUi, type TransformDraft } from './ui-store.ts'
+import { useUi, type TransformDraft } from './ui-store.ts'
 
 export function selectJoints(joints: JointRef[]): void {
   const first = joints[0]
@@ -20,7 +32,7 @@ export function selectJoints(joints: JointRef[]): void {
     const active = doc.clips.find((clip) => clip.id === playhead.clipId)
     if (active?.characterId !== first.characterId) {
       const clip = doc.clips.find((entry) => entry.characterId === first.characterId)
-      editor.setPlayhead({ clipId: clip?.id ?? null, frame: clip?.start ?? 0 })
+      editor.setPlayhead({ clipId: clip?.id ?? null, frame: clip?.start ?? doc.sceneTiming.start })
     }
   }
   editor.select(joints)
@@ -40,9 +52,7 @@ function blankClip(characterId: string): Clip {
     id: crypto.randomUUID(),
     characterId,
     name: `Animation ${number}`,
-    fps: PREVIEW_FPS,
-    start: 0,
-    end: PREVIEW_END,
+    ...doc.sceneTiming,
     tracks: [],
   }
 }
@@ -61,15 +71,29 @@ export function newClip(): void {
 function keyFrame(joint: JointRef): number {
   const clip = activeClip()
   if (!clip) return useUi.getState().previewFrame
-  if (clip.characterId !== joint.characterId) return 0
+  if (clip.characterId !== joint.characterId) return editor.getState().doc.sceneTiming.start
   return editor.getState().playhead.frame
 }
 
-function keyTransforms(characterId: string, frame: number, keys: JointKey[]): void {
+type LimbKey = { joint: number; key: Extract<PoseKey, { channel: 'ikTarget' }> }
+
+function runKey(characterId: string, frame: number, changes: readonly JointKey[] | LimbKey): void {
   const clip = activeClip()
   const target = clip?.characterId === characterId ? clip.id : blankClip(characterId)
-  editor.run(setTransformKeys(target, frame, keys))
+  const ui = useUi.getState()
+  const keyed = 'key' in changes ? [changes] : changes
+  const remaining = ui.unkeyedTransforms.filter(({ joint, key }) =>
+    joint.characterId === characterId
+      ? !keyed.some((change) => change.joint === joint.joint && change.key.channel === key.channel)
+      : typeof target === 'string',
+  )
+  editor.run(
+    'key' in changes
+      ? setLimbTargetKey(target, changes.joint, frame, changes.key.value)
+      : setTransformKeys(target, frame, changes),
+  )
   if (typeof target !== 'string') editor.setPlayhead({ clipId: target.id, frame })
+  if (remaining.length) ui.setUnkeyedTransforms(remaining)
 }
 
 export function keySelection(): void {
@@ -83,17 +107,42 @@ export function keySelection(): void {
   ui.setPlaying(false)
   const frame = keyFrame(lead)
   const skeleton = compileSkeleton(character.skeleton)
-  const pose = createPose(skeleton)
-  solvePose(
-    skeleton,
-    clip?.characterId === character.id ? compileClip(clip, skeleton.count) : null,
-    frame,
-    pose,
-  )
-  const local = pose.local
+  const compiled = clip?.characterId === character.id ? compileClip(clip, skeleton.count) : null
+  const unkeyed = ui.unkeyedTransforms
+    .filter(({ joint }) => joint.characterId === character.id)
+    .map(({ joint, key }) => ({ joint: joint.joint, key }))
+  if (ui.transformMode === 'ik') {
+    if (selection.joints.length !== 1 || (compiled?.limb && compiled.limb.tip !== lead.joint))
+      return
+    const pose = createPose(skeleton)
+    solvePose(
+      skeleton,
+      compiled,
+      frame,
+      pose,
+      unkeyed.length ? compilePosePreview(skeleton.count, unkeyed) : undefined,
+    )
+    if (pose.ik.tip >= 0 && pose.ik.tip !== lead.joint) return
+    if (!canSolveLimb(skeleton, pose, lead.joint)) return
+    const target: [number, number, number] = [0, 0, 0]
+    if (pose.ik.tip === lead.joint) {
+      target[0] = pose.ik.target[0]!
+      target[1] = pose.ik.target[1]!
+      target[2] = pose.ik.target[2]!
+    } else jointPosition(pose, lead.joint, target)
+    runKey(character.id, frame, { joint: lead.joint, key: { channel: 'ikTarget', value: target } })
+    return
+  }
+  // Sample the authored FK channels rather than keying the IK-adjusted pose.
+  const local = skeleton.rest.slice()
+  if (compiled) sampleClip(compiled, frame, local)
   const keys = selection.joints
     .filter(({ characterId }) => characterId === character.id)
-    .map(({ joint }): JointKey => {
+    .flatMap(({ joint }): JointKey[] => {
+      const edits = unkeyed.flatMap((edit): JointKey[] =>
+        edit.joint === joint && edit.key.channel !== 'ikTarget' ? [{ joint, key: edit.key }] : [],
+      )
+      if (edits.length) return edits
       const o = joint * LOCAL_STRIDE
       const key: TransformKey =
         ui.transformMode === 'translate'
@@ -104,9 +153,9 @@ export function keySelection(): void {
                 channel: 'rotations',
                 value: [local[o + 3]!, local[o + 4]!, local[o + 5]!, local[o + 6]!],
               }
-      return { joint, key }
+      return [{ joint, key }]
     })
-  keyTransforms(character.id, frame, keys)
+  runKey(character.id, frame, keys)
 }
 
 function keyDeletion() {
@@ -121,12 +170,18 @@ function keyDeletion() {
   const joints =
     range.rowId === 'character'
       ? clip.tracks.map((track) => track.joint)
-      : [
-          findCharacter(doc, clip.characterId)?.skeleton.joints.findIndex(
-            (joint) => `joint:${joint.id}` === range.rowId,
-          ) ?? -1,
-        ]
+      : range.rowId === 'ik'
+        ? []
+        : [
+            findCharacter(doc, clip.characterId)?.skeleton.joints.findIndex(
+              (joint) => `joint:${joint.id}` === range.rowId,
+            ) ?? -1,
+          ]
+  const limb = range.rowId === 'character' || range.rowId === 'ik'
+  const hasLimbKeys =
+    limb && clip.limb?.targets.frames.some((frame) => frame >= start && frame <= end)
   if (
+    !hasLimbKeys &&
     !clip.tracks.some(
       (track) =>
         joints.includes(track.joint) &&
@@ -136,7 +191,7 @@ function keyDeletion() {
     )
   )
     return undefined
-  return { clipId: clip.id, joints, start, end }
+  return { clipId: clip.id, joints, start, end, limb }
 }
 
 export function deleteKeys(): boolean {
@@ -144,7 +199,9 @@ export function deleteKeys(): boolean {
   if (!target) return false
   const ui = useUi.getState()
   ui.setPlaying(false)
-  editor.run(deleteTransformKeys(target.clipId, target.joints, target.start, target.end))
+  editor.run(
+    deleteClipKeys(target.clipId, target.joints, target.start, target.end, { limb: target.limb }),
+  )
   ui.setTimelineRange(null)
   return true
 }
@@ -155,17 +212,32 @@ export function beginTransform(joint: JointRef) {
   let draft: TransformDraft = { joint, frame: keyFrame(joint), key: null }
   ui.setTransformDraft(draft)
   return {
-    preview(key: TransformKey | null) {
+    preview(key: PoseKey | null) {
       if (useUi.getState().transformDraft !== draft) return
       draft = { ...draft, key }
       ui.setTransformDraft(draft)
     },
-    finish(commit: boolean) {
-      if (useUi.getState().transformDraft !== draft) return
-      ui.setTransformDraft(null)
-      if (commit && draft.key) {
-        keyTransforms(joint.characterId, draft.frame, [{ joint: joint.joint, key: draft.key }])
+    finish(commit: boolean, forceKey = false) {
+      const current = useUi.getState()
+      if (current.transformDraft !== draft) return
+      current.setTransformDraft(null)
+      const key = draft.key
+      if (!commit || !key) return
+      if (forceKey || current.autoKey) {
+        runKey(
+          joint.characterId,
+          draft.frame,
+          key.channel === 'ikTarget' ? { joint: joint.joint, key } : [{ joint: joint.joint, key }],
+        )
+        return
       }
+      const remaining = current.unkeyedTransforms.filter(
+        (edit) =>
+          edit.joint.characterId !== joint.characterId ||
+          edit.key.channel !== key.channel ||
+          (key.channel !== 'ikTarget' && edit.joint.joint !== joint.joint),
+      )
+      current.setUnkeyedTransforms([...remaining, { joint, key }])
     },
   }
 }

@@ -79,12 +79,12 @@ export class Viewport {
       powerPreference: 'high-performance',
     })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-    this.scene.background = new Color('#202023')
-    this.scene.add(new HemisphereLight('#ffffff', '#3a3f47', 1.6))
+    this.scene.background = new Color('#f6f7fa')
+    this.scene.add(new HemisphereLight('#ffffff', '#404040', 1.6))
     const key = new DirectionalLight('#ffffff', 2)
     key.position.set(3, 6, 4)
     this.scene.add(key)
-    const grid = new GridHelper(10, 20, '#3f3f46', '#2c2c31')
+    const grid = new GridHelper(10, 20, '#c5c8d1', '#dde0e7')
     this.scene.add(grid)
 
     this.rig = new Rig(this.camera, canvas, () => this.selectionCenter())

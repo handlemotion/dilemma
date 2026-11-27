@@ -1,29 +1,37 @@
 import { useEffect } from 'react'
-import { editor } from './editor.ts'
-import { useUi } from './ui-store.ts'
+import { editor, useEditorState } from './editor.ts'
+import { PREVIEW_END, PREVIEW_FPS, useUi } from './ui-store.ts'
 
 /** While playing, advance the playhead on wall-clock time, looping over the clip. */
 export function usePlayback(): void {
   const playing = useUi((s) => s.playing)
 
+  const clipId = useEditorState((s) => s.playhead.clipId)
+  const workArea = useUi((s) => s.workArea)
+
   useEffect(() => {
     if (!playing) return
     const { playhead, doc } = editor.getState()
-    const clip = doc.clips.find((c) => c.id === playhead.clipId)
-    if (!clip || clip.end <= clip.start) {
-      useUi.getState().setPlaying(false)
-      return
-    }
-    const length = clip.end - clip.start + 1
-    const startFrame = playhead.frame >= clip.end ? clip.start : playhead.frame
+    const clip = doc.clips.find((c) => c.id === clipId)
+    const baseStart = clip?.start ?? 0
+    const baseEnd = clip?.end ?? PREVIEW_END
+    const area = workArea?.clipId === (clip?.id ?? null) ? workArea : null
+    const start = Math.max(baseStart, Math.min(baseEnd, area?.start ?? baseStart))
+    const end = Math.max(start, Math.min(baseEnd, area?.end ?? baseEnd))
+    const frame = clip ? playhead.frame : useUi.getState().previewFrame
+    const fps = clip?.fps ?? PREVIEW_FPS
+    const length = end - start + 1
+    const startFrame = frame < start || frame >= end ? start : frame
     const t0 = performance.now()
     let raf = 0
     const tick = (now: number) => {
-      const elapsed = Math.floor(((now - t0) / 1000) * clip.fps)
-      editor.setPlayhead({ frame: clip.start + ((startFrame - clip.start + elapsed) % length) })
+      const elapsed = Math.floor(((now - t0) / 1000) * fps)
+      const next = start + ((startFrame - start + elapsed) % length)
+      if (clip) editor.setPlayhead({ frame: next })
+      else if (useUi.getState().previewFrame !== next) useUi.getState().setPreviewFrame(next)
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [playing])
+  }, [playing, clipId, workArea])
 }

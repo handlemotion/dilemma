@@ -13,8 +13,8 @@ import {
   SphereGeometry,
 } from 'three'
 
-const IDLE = new Color('#7dd3fc')
-const SELECTED = new Color('#fbbf24')
+const IDLE = new Color('#4c94fa')
+const SELECTED = new Color('#fab94c')
 
 /** Draws a skeleton as dots and parent-child lines, on top of the mesh. */
 export class JointOverlay {

@@ -1,13 +1,16 @@
 import {
   TRANSFORM_CHANNELS,
+  validSceneTiming,
   type Character,
   type Clip,
   type DilemmaDocument,
   type JointTrack,
   type KeyChannel,
   type Quat,
+  type SceneTiming,
   type TransformChannel,
   type TransformKey,
+  type Vec3,
 } from './document.ts'
 
 /**
@@ -18,6 +21,21 @@ import {
 export interface Command {
   readonly label: string
   apply(doc: DilemmaDocument): { doc: DilemmaDocument; inverse: Command }
+}
+
+export function setSceneTiming(timing: Partial<SceneTiming>): Command {
+  return {
+    label: 'Set scene timing',
+    apply(doc) {
+      const sceneTiming = { ...doc.sceneTiming, ...timing }
+      if (!validSceneTiming(sceneTiming)) {
+        throw new Error(
+          'Enter a positive frame rate and a whole-frame range in start-to-end order.',
+        )
+      }
+      return { doc: { ...doc, sceneTiming }, inverse: setSceneTiming(doc.sceneTiming) }
+    },
+  }
 }
 
 export function addCharacter(character: Character, clips: Clip[] = []): Command {
@@ -80,6 +98,36 @@ export function addClip(clip: Clip): Command {
   })
 }
 
+export function setClipTiming(
+  id: string,
+  timing: Partial<Pick<Clip, 'start' | 'end' | 'fps'>>,
+): Command {
+  return editClip(id, 'Set clip timing', (clip) => {
+    if (!clip) throw new Error(`No clip ${id}.`)
+    const next = { ...clip, ...timing }
+    const { start, end, fps } = next
+    if ((start | 0) !== start || (end | 0) !== end || start > end)
+      throw new Error('Enter whole clip frames with the start at or before the end.')
+    if (!Number.isFinite(fps) || fps <= 0) throw new Error('Clip FPS must be greater than zero.')
+
+    const excludesKeys = (channel: KeyChannel | undefined) => {
+      const frames = channel?.frames
+      return !!frames?.length && (frames[0]! < start || frames[frames.length - 1]! > end)
+    }
+    if (
+      excludesKeys(clip.limb?.targets) ||
+      clip.tracks.some((track) =>
+        TRANSFORM_CHANNELS.some((channel) => excludesKeys(track[channel])),
+      )
+    ) {
+      throw new Error(
+        'The clip range must include all keys. Use Preview for a shorter playback range.',
+      )
+    }
+    return next
+  })
+}
+
 const channelLabel = {
   translations: 'translation',
   rotations: 'rotation',
@@ -119,21 +167,38 @@ export function setTransformKeys(
       if (!key.value.every(Number.isFinite)) throw new Error('The key values must be finite.')
       const index = tracks.findIndex((track) => track.joint === joint)
       const track = tracks[index]
-      const frames = [...(track?.[key.channel]?.frames ?? [])]
-      const values = [...(track?.[key.channel]?.values ?? [])]
-      const first = frames.findIndex((existing) => existing >= frame)
-      const offset = first < 0 ? frames.length : first
-      const count = frames[offset] === frame ? 1 : 0
-      const size = key.value.length
-      frames.splice(offset, count, frame)
-      values.splice(offset * size, count * size, ...key.value)
       tracks[index < 0 ? tracks.length : index] = {
         ...track,
         joint,
-        [key.channel]: { frames, values },
+        [key.channel]: insertKey(track?.[key.channel], frame, key.value),
       }
     }
     return { ...clip, tracks }
+  })
+}
+
+function insertKey(channel: KeyChannel | undefined, frame: number, value: readonly number[]) {
+  const frames = [...(channel?.frames ?? [])]
+  const values = [...(channel?.values ?? [])]
+  const first = frames.findIndex((existing) => existing >= frame)
+  const offset = first < 0 ? frames.length : first
+  const count = frames[offset] === frame ? 1 : 0
+  frames.splice(offset, count, frame)
+  values.splice(offset * value.length, count * value.length, ...value)
+  return { frames, values }
+}
+
+export function setLimbTargetKey(target: Clip | string, tip: number, frame: number, value: Vec3) {
+  const id = typeof target === 'string' ? target : target.id
+  return editClip(id, 'Set IK target key', (current) => {
+    const clip = current ?? (typeof target === 'string' ? undefined : target)
+    if (!clip) throw new Error(`No clip ${id}.`)
+    if (!Number.isInteger(frame) || frame < clip.start || frame > clip.end) {
+      throw new Error('The key must be on an integer frame within the clip.')
+    }
+    if (clip.limb && clip.limb.tip !== tip) throw new Error('The clip already has an IK limb.')
+    if (!value.every(Number.isFinite)) throw new Error('The key values must be finite.')
+    return { ...clip, limb: { tip, targets: insertKey(clip.limb?.targets, frame, value) } }
   })
 }
 
@@ -153,7 +218,24 @@ export function deleteTransformKeys(
   end: number,
   channels: readonly TransformChannel[] = TRANSFORM_CHANNELS,
 ): Command {
-  const label = channels.length === 1 ? `Delete ${channelLabel[channels[0]!]} keys` : 'Delete keys'
+  return deleteClipKeys(id, joints, start, end, { channels })
+}
+
+export function deleteClipKeys(
+  id: string,
+  joints: number[],
+  start: number,
+  end: number,
+  {
+    channels = TRANSFORM_CHANNELS,
+    limb = false,
+  }: {
+    channels?: readonly TransformChannel[]
+    limb?: boolean
+  } = {},
+): Command {
+  const label =
+    !limb && channels.length === 1 ? `Delete ${channelLabel[channels[0]!]} keys` : 'Delete keys'
   const jointSet = new Set(joints)
   return editClip(id, label, (clip) => {
     if (!clip) throw new Error(`No clip ${id}.`)
@@ -169,7 +251,13 @@ export function deleteTransformKeys(
       }
       return next.translations || next.rotations || next.scales ? [next] : []
     })
-    return { ...clip, tracks }
+    const next = { ...clip, tracks }
+    if (limb && clip.limb) {
+      const targets = outsideRange(clip.limb.targets, 3, start, end)
+      if (targets) next.limb = { ...clip.limb, targets }
+      else delete next.limb
+    }
+    return next
   })
 }
 
@@ -218,6 +306,13 @@ function editClip(
         const character = doc.characters.find((entry) => entry.id === next.characterId)
         if (!character || next.tracks.some(({ joint }) => !character.skeleton.joints[joint])) {
           throw new Error('The clip refers to a missing character or joint.')
+        }
+        if (next.limb) {
+          const joints = character.skeleton.joints
+          const middle = joints[next.limb.tip]?.parent ?? -1
+          if ((joints[middle]?.parent ?? -1) < 0) {
+            throw new Error('The IK tip needs two parent joints.')
+          }
         }
         clips.splice(index < 0 ? (insertAt ?? clips.length) : index, index < 0 ? 0 : 1, next)
       } else if (index >= 0) clips.splice(index, 1)

@@ -1,14 +1,51 @@
-import type { JointRef, TransformKey } from '@dilemma/core'
-import type { TransformMode, ViewportMarquee } from '@dilemma/view'
+import {
+  DEFAULT_SCENE_TIMING,
+  type Clip,
+  type JointRef,
+  type PoseKey,
+  type SceneTiming,
+} from '@dilemma/core'
+import type {
+  TransformMode,
+  TransformPreview,
+  ViewportDisplay,
+  ViewportMarquee,
+} from '@dilemma/view'
 import type { CharacterAssets } from '@dilemma/io'
 import { create } from 'zustand'
 import type { TimelineRowId } from './components/timeline-tracks.ts'
+import {
+  defaultDockLayout,
+  dockSide,
+  movePanel,
+  type DockDrop,
+  type DockLayout,
+  type DockPanel,
+  type DockSide,
+} from './dock-layout.ts'
 
-export const PREVIEW_END = 120
-export const PREVIEW_FPS = 30
 export const PLAYBACK_SPEEDS = [0.25, 0.5, 1, 1.5, 2] as const
 
 type PlaybackSpeed = (typeof PLAYBACK_SPEEDS)[number]
+
+interface WorkArea {
+  clipId: string | null
+  start: number
+  end: number
+}
+
+export function resolveWorkArea(
+  clip: Clip | null | undefined,
+  sceneTiming: SceneTiming,
+  workArea: WorkArea | null,
+): WorkArea {
+  const clipId = clip?.id ?? null
+  const { start: first, end: last } = clip ?? sceneTiming
+  const area = workArea?.clipId === clipId ? workArea : null
+  const start = Math.max(first, Math.min(last, area?.start ?? first))
+  const end = Math.max(start, Math.min(last, area?.end ?? last))
+  return { clipId, start, end }
+}
 
 export interface TimelineRowRef {
   clipId: string | null
@@ -23,20 +60,40 @@ export interface TimelineRange extends TimelineRowRef {
 export interface TransformDraft {
   joint: JointRef
   frame: number
-  key: TransformKey | null
+  key: PoseKey | null
 }
+
+export interface ViewportSettings extends ViewportDisplay {
+  cameraFrame: boolean
+  compositionGrid: 'none' | 'thirds' | 'golden'
+}
+
+export const SHADING_MODES = [
+  { value: 'materials', label: 'Materials' },
+  { value: 'clay', label: 'Clay' },
+  { value: 'wireframe', label: 'Wireframe' },
+] as const
+
+export const COMPOSITION_GRIDS = [
+  { value: 'none', label: 'None' },
+  { value: 'thirds', label: 'Rule of thirds' },
+  { value: 'golden', label: 'Golden ratio' },
+] as const
 
 /** UI and render-resource state. Never document state: that lives in the editor. */
 interface UiState {
   outlinerFocus: string | null
   setOutlinerFocus(focus: string | null): void
-  outlinerSearchOpen: boolean
-  setOutlinerSearchOpen(open: boolean): void
+  dockLayout: DockLayout
+  draggedPanel: DockPanel | null
+  setDraggedPanel(panel: DockPanel | null): void
+  activatePanel(panel: DockPanel): void
+  moveDockPanel(panel: DockPanel, side: DockSide, drop: DockDrop): void
   inspectorExpansion: Partial<Record<string, boolean>>
   setInspectorExpanded(joint: string, expanded: boolean): void
-  panelSizes: Partial<Record<'outliner' | 'inspector' | 'timeline', number>>
+  panelSizes: Partial<Record<DockSide | 'timeline', number>>
   setPanelSize(panel: keyof UiState['panelSizes'], size: number | undefined): void
-  workArea: { clipId: string | null; start: number; end: number } | null
+  workArea: WorkArea | null
   setWorkArea(workArea: UiState['workArea']): void
   previewFrame: number
   timelineRange: TimelineRange | null
@@ -47,11 +104,19 @@ interface UiState {
   setPreviewFrame(frame: number): void
   setTimelineRange(range: TimelineRange | null): void
   playing: boolean
+  loopPlayback: boolean
+  setLoopPlayback(loopPlayback: boolean): void
   playbackSpeed: PlaybackSpeed
   setPlaybackSpeed(speed: PlaybackSpeed): void
+  autoKey: boolean
+  setAutoKey(autoKey: boolean): void
+  unkeyedTransforms: readonly TransformPreview[]
+  setUnkeyedTransforms(transforms: readonly TransformPreview[]): void
   loading: string | null
   error: string | null
   projectPath: string | null
+  viewportSettings: ViewportSettings
+  setViewportSettings(settings: Partial<ViewportSettings>): void
   viewportMarquee: ViewportMarquee | null
   setViewportMarquee(rect: ViewportMarquee | null): void
   transformMode: TransformMode
@@ -73,8 +138,20 @@ interface UiState {
 export const useUi = create<UiState>((set) => ({
   outlinerFocus: null,
   setOutlinerFocus: (outlinerFocus) => set({ outlinerFocus }),
-  outlinerSearchOpen: false,
-  setOutlinerSearchOpen: (outlinerSearchOpen) => set({ outlinerSearchOpen }),
+  dockLayout: defaultDockLayout,
+  draggedPanel: null,
+  setDraggedPanel: (draggedPanel) => set({ draggedPanel }),
+  activatePanel: (panel) =>
+    set(({ dockLayout }) => {
+      const side = dockSide(dockLayout, panel)
+      if (dockLayout[side].active === panel) return { dockLayout }
+      return { dockLayout: { ...dockLayout, [side]: { ...dockLayout[side], active: panel } } }
+    }),
+  moveDockPanel: (panel, side, drop) =>
+    set(({ dockLayout }) => ({
+      dockLayout: movePanel(dockLayout, panel, side, drop),
+      draggedPanel: null,
+    })),
   inspectorExpansion: {},
   setInspectorExpanded: (joint, expanded) =>
     set((state) => ({ inspectorExpansion: { ...state.inspectorExpansion, [joint]: expanded } })),
@@ -82,21 +159,39 @@ export const useUi = create<UiState>((set) => ({
   setPanelSize: (panel, size) => set((s) => ({ panelSizes: { ...s.panelSizes, [panel]: size } })),
   workArea: null,
   setWorkArea: (workArea) => set({ workArea, playing: false }),
-  previewFrame: 0,
+  previewFrame: DEFAULT_SCENE_TIMING.start,
   timelineRange: null,
   activeTimelineRow: null,
   expandedTimelineCharacterId: null,
   setActiveTimelineRow: (activeTimelineRow) => set({ activeTimelineRow }),
   setExpandedTimelineCharacter: (expandedTimelineCharacterId) =>
     set({ expandedTimelineCharacterId }),
-  setPreviewFrame: (previewFrame) => set({ previewFrame }),
+  setPreviewFrame: (previewFrame) =>
+    set((state) =>
+      state.previewFrame === previewFrame ? state : { previewFrame, unkeyedTransforms: [] },
+    ),
   setTimelineRange: (timelineRange) => set({ timelineRange }),
   playing: false,
+  loopPlayback: true,
+  setLoopPlayback: (loopPlayback) => set({ loopPlayback }),
   playbackSpeed: 1,
   setPlaybackSpeed: (playbackSpeed) => set({ playbackSpeed }),
+  autoKey: true,
+  setAutoKey: (autoKey) => set({ autoKey }),
+  unkeyedTransforms: [],
+  setUnkeyedTransforms: (unkeyedTransforms) => set({ unkeyedTransforms }),
   loading: null,
   error: null,
   projectPath: null,
+  viewportSettings: {
+    cameraLocked: false,
+    floorGrid: true,
+    shading: 'materials',
+    cameraFrame: false,
+    compositionGrid: 'none',
+  },
+  setViewportSettings: (settings) =>
+    set((state) => ({ viewportSettings: { ...state.viewportSettings, ...settings } })),
   viewportMarquee: null,
   setViewportMarquee: (viewportMarquee) => set({ viewportMarquee }),
   transformMode: 'rotate',
@@ -104,7 +199,7 @@ export const useUi = create<UiState>((set) => ({
   transformDraft: null,
   assets: new Map(),
   fps: 0,
-  setPlaying: (playing) => set({ playing }),
+  setPlaying: (playing) => set(playing ? { playing, unkeyedTransforms: [] } : { playing }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
   setProjectPath: (projectPath) => set({ projectPath }),

@@ -1,6 +1,6 @@
-import type { Clip, Skeleton } from '@dilemma/core'
+import type { Clip, Skeleton, Vec3 } from '@dilemma/core'
 import { describe, expect, it } from 'vitest'
-import { solvePose } from './pose.ts'
+import { compilePosePreview, solvePose } from './pose.ts'
 import { compileClip, compileSkeleton, createPose, WORLD_STRIDE } from './skeleton.ts'
 
 const s = Math.SQRT1_2
@@ -75,6 +75,59 @@ describe('solvePose', () => {
     expect(Array.from(b.world)).toEqual(Array.from(a.world))
   })
 
+  it('pins the interpolated IK target under a rotated, nonuniformly scaled ancestor', () => {
+    const source = chain(5)
+    source.joints[0]!.rest.scale = [2, 3, 0.5]
+    source.joints[0]!.rest.rotation = [0, s, 0, s]
+    const skeleton = compileSkeleton(source)
+    const clip = compileClip(
+      {
+        id: 'ik',
+        name: 'IK',
+        characterId: 'x',
+        fps: 30,
+        start: 0,
+        end: 10,
+        tracks: [{ joint: 0, translations: { frames: [0, 10], values: [0, 1, 0, 0.02, 1, 0] } }],
+        limb: { tip: 3, targets: { frames: [0, 10], values: [0, 1.6, -0.1, 0.04, 1.6, -0.1] } },
+      },
+      5,
+    )
+    const pose = createPose(skeleton)
+    solvePose(skeleton, clip, 5, pose)
+    const wrist = position(pose.world, 3)
+    for (const [i, value] of [0.02, 1.6, -0.1].entries()) expect(wrist[i]).toBeCloseTo(value, 10)
+    expect(position(pose.world, 4)).not.toEqual(wrist)
+    const solved = pose.world.slice()
+    solvePose(skeleton, clip, 0, pose)
+    solvePose(skeleton, clip, 5, pose)
+    expect(pose.world).toEqual(solved)
+  })
+
+  it('clamps targets on either side of the reachable range while preserving segment lengths', () => {
+    const source = chain(3)
+    source.joints[1]!.rest.translation = [0, 0.2, 0]
+    const skeleton = compileSkeleton(source)
+    const pose = createPose(skeleton)
+    for (const [value, expectedY] of [
+      [[0, 0, 0], 0.7],
+      [[0, 0.99, 0], 0.9],
+      [[0, 1, 0], 1.1],
+    ] satisfies [Vec3, number][]) {
+      const preview = compilePosePreview(skeleton.count, [
+        { joint: 2, key: { channel: 'ikTarget', value } },
+      ])
+      solvePose(skeleton, null, 0, pose, preview)
+      const [x, y, z] = position(pose.world, 2)
+      const [mx, my, mz] = position(pose.world, 1)
+      expect(x).toBeCloseTo(0, 10)
+      expect(y).toBeCloseTo(expectedY, 10)
+      expect(z).toBeCloseTo(0, 10)
+      expect(Math.hypot(mx!, my! - 1, mz!)).toBeCloseTo(0.2, 10)
+      expect(Math.hypot(x! - mx!, y! - my!, z! - mz!)).toBeCloseTo(0.1, 10)
+    }
+  })
+
   it('rejects joints that come before their parent', () => {
     const skeleton = chain(2)
     skeleton.joints[0]!.parent = 1
@@ -84,7 +137,13 @@ describe('solvePose', () => {
   it('solves a 70-joint humanoid in under 2 ms', () => {
     const joints = 70
     const skeleton = compileSkeleton(chain(joints))
-    const clip = compileClip(randomClip(joints, 11), joints)
+    const clip = compileClip(
+      {
+        ...randomClip(joints, 11),
+        limb: { tip: 2, targets: { frames: [0], values: [0, 0.25, 0.04] } },
+      },
+      joints,
+    )
     const pose = createPose(skeleton)
     for (let f = 0; f < 200; f++) solvePose(skeleton, clip, f % 120, pose) // warm up
     const runs = 1000

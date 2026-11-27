@@ -5,6 +5,7 @@ import { readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { writeWholeSoon } from './atomic.ts'
+import { writeFbx } from './fbx.ts'
 import {
   ASSET_SCHEME,
   Channels,
@@ -94,13 +95,16 @@ const filesIn = (argv: string[]) =>
   argv.filter((arg) => !arg.startsWith('-') && /\.(glb|gltf)$/i.test(arg))
 
 function createWindow(): BrowserWindow {
+  const isMac = process.platform === 'darwin'
   const window = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#f5f6f8',
-    titleBarStyle: 'hiddenInset',
+    titleBarStyle: isMac ? 'hiddenInset' : 'default',
+    trafficLightPosition: { x: 12, y: 10 },
+    autoHideMenuBar: !isMac,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -130,6 +134,14 @@ function send(action: MenuAction): void {
   BrowserWindow.getFocusedWindow()?.webContents.send(Channels.menu, action)
 }
 
+function showExportDialog(name: string, format: 'glb' | 'fbx') {
+  return dialog.showSaveDialog({
+    title: `Export ${format.toUpperCase()}`,
+    defaultPath: `${name.replace(/[\\/:]/g, '_') || 'Animation'}.${format}`,
+    filters: [{ name: format === 'glb' ? 'Binary glTF' : 'FBX', extensions: [format] }],
+  })
+}
+
 function buildMenu(): void {
   const isMac = process.platform === 'darwin'
   Menu.setApplicationMenu(
@@ -151,6 +163,7 @@ function buildMenu(): void {
             click: () => send('saveProjectAs'),
           },
           { label: 'Export GLB…', click: () => send('exportGlb') },
+          { label: 'Export FBX…', click: () => send('exportFbx') },
           { type: 'separator' },
           isMac ? { role: 'close' } : { role: 'quit' },
         ],
@@ -279,15 +292,32 @@ void app.whenReady().then(() => {
     if (!(bytes instanceof ArrayBuffer) || typeof name !== 'string') {
       throw new Error('Expected a binary GLB and a clip name.')
     }
-    const result = await dialog.showSaveDialog({
-      title: 'Export GLB',
-      defaultPath: `${name.replace(/[\\/:]/g, '_') || 'Animation'}.glb`,
-      filters: [{ name: 'Binary glTF', extensions: ['glb'] }],
-    })
+    const result = await showExportDialog(name, 'glb')
     if (result.canceled || !result.filePath) return null
     await writeWholeSoon(result.filePath, new Uint8Array(bytes))
     return result.filePath
   })
+  ipcMain.handle(
+    Channels.exportFbx,
+    async (_event, bytes: unknown, name: unknown, fps: unknown, lastFrame: unknown) => {
+      if (
+        !(bytes instanceof ArrayBuffer) ||
+        typeof name !== 'string' ||
+        typeof fps !== 'number' ||
+        !Number.isFinite(fps) ||
+        fps <= 0 ||
+        typeof lastFrame !== 'number' ||
+        !Number.isSafeInteger(lastFrame) ||
+        lastFrame < 0
+      ) {
+        throw new Error('Expected a baked GLB and valid clip timing.')
+      }
+      const result = await showExportDialog(name, 'fbx')
+      if (result.canceled || !result.filePath) return null
+      await writeFbx(result.filePath, bytes, name, fps, lastFrame)
+      return result.filePath
+    },
+  )
 
   buildMenu()
   createWindow()

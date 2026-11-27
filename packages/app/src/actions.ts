@@ -6,9 +6,9 @@ import { bridge } from './bridge.ts'
 import { rememberBrowserSource } from './browser-session.ts'
 import { editor } from './editor.ts'
 import { useUi } from './ui-store.ts'
-import type { OpenedFile } from '../electron/ipc.ts'
+import { FBX_BAKE_FPS, type OpenedFile } from '../electron/ipc.ts'
 
-let savedProject: string | null = null
+let savedProject = JSON.stringify(editor.getState().doc)
 let fileQueue = Promise.resolve()
 
 function fileOperation(activity: string, run: () => Promise<void>): Promise<void> {
@@ -89,7 +89,6 @@ export function openProject(): Promise<void> {
     )
     const current = editor.getState().doc
     if (
-      current.characters.length &&
       JSON.stringify(current) !== savedProject &&
       !window.confirm('Open this project and discard unsaved changes?')
     )
@@ -100,7 +99,7 @@ export function openProject(): Promise<void> {
     ui.setTransformDraft(null)
     ui.setTimelineRange(null)
     ui.setWorkArea(null)
-    ui.setPreviewFrame(0)
+    ui.setPreviewFrame(restored.sceneTiming.start)
     ui.setAssets(assets)
     editor.load(restored)
     savedProject = JSON.stringify(restored)
@@ -126,8 +125,8 @@ function sameSkeleton(source: Skeleton, saved: Skeleton): boolean {
   )
 }
 
-export function exportAnimation(): Promise<void> {
-  return fileOperation('Exporting GLB…', async () => {
+export function exportAnimation(format: 'glb' | 'fbx' = 'glb'): Promise<void> {
+  return fileOperation(`Exporting ${format.toUpperCase()}…`, async () => {
     const clip = activeClip()
     if (!clip) return
     const character = editor
@@ -138,10 +137,15 @@ export function exportAnimation(): Promise<void> {
     const skeleton = compileSkeleton(character.skeleton)
     const compiled = compileClip(clip, skeleton.count)
     const pose = createPose(skeleton)
-    const bytes = await exportGlb(assets, clip, (frame) => {
+    const bake = format === 'fbx' ? { ...clip, fps: FBX_BAKE_FPS } : clip
+    const bytes = await exportGlb(assets, bake, (frame) => {
       solvePose(skeleton, compiled, frame, pose)
       return pose.local
     })
-    await bridge?.exportGlb(bytes, clip.name)
+    if (format === 'fbx') {
+      await bridge?.exportFbx(bytes, clip.name, clip.fps, clip.end - clip.start)
+    } else {
+      await bridge?.exportGlb(bytes, clip.name)
+    }
   })
 }

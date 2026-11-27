@@ -21,13 +21,28 @@ pnpm install
 pnpm dev
 ```
 
+Keep the `pnpm dev` desktop window open while working on the UI. Vite applies style and React component edits there as you save. Changes to the Electron main process or preload take effect after restarting the dev app.
+
 Press ⌘O or drop a `.glb` or `.gltf` on the window. The camera moves the way Maya's does, Alt with the left, middle or right button turns, pans or zooms. On a trackpad a two-finger swipe turns and a pinch zooms. F frames the selection, Space plays, and the arrow keys step one frame. The Navigation menu in the toolbar switches the mouse buttons to Blender's layout or a trackpad-first one.
 
 Select a joint and drag a rotation ring to write a key at the playhead. Use **New clip** to start a fresh animation, **Set key** or S to key the current rotation, and **Delete keys** to remove rotation keys at the playhead or in a selected range. Use **File → Save Project** (⌘S) and **File → Open Project** (⇧⌘O) for `.dilemma` files. Project files reference the original character assets by path, so keep those files and any sibling textures or buffers available. **Export GLB** writes a standalone copy of the character with the active clip baked into it.
 
-To put it in Applications, run `pnpm install-app`. It builds the app, signs it ad-hoc since there's no developer certificate yet, and replaces `/Applications/Dilemma.app`. There are no automatic updates in v0, so to update you pull and run it again.
+**File → Export FBX** writes the character with the active clip baked onto its skeleton for Maya or Blender. It runs your local Blender installation in the background. Dilemma looks in `/Applications`, `~/Applications`, Steam's default library, and the app's `PATH`.
+
+Download the DMG for your Mac from [GitHub Releases](https://github.com/handlemotion/dilemma/releases) and drag Dilemma into Applications. To install from a checkout, run `pnpm install-app`. It builds and signs the app ad hoc and replaces `/Applications/Dilemma.app`.
 
 `pnpm run check` runs the typecheck, lint, format check and tests, the same as CI. `pnpm fetch-assets` downloads a few skinned characters from the Khronos glTF sample assets for the import tests.
+
+## Releasing
+
+Run **Release macOS** from GitHub Actions on `main`. The workflow runs CI, builds Apple Silicon and Intel DMGs, and publishes both with generated release notes for the tagged commit.
+
+Versions use `vYEAR.MAJOR.BATCH` and roll over on January 1 UTC. Choose `routine` to ship a batch of minor features and fixes. Choose `major` to bump the middle number and reset the last one to zero.
+
+- The first routine release of the year is `v2026.0.1` and the next is `v2026.0.2`.
+- A major release after `v2026.0.2` is `v2026.1.0`. A major release can also open the year at `v2026.1.0`.
+
+To enable Developer ID signing and Apple notarization, set the GitHub Actions secrets `CSC_LINK` (base64 Developer ID Application `.p12`), `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`. With no signing secrets, CI signs the app ad hoc. macOS may require you to approve opening the downloaded app in Privacy & Security. [Apple’s instructions](https://support.apple.com/en-us/102445)
 
 ## License
 

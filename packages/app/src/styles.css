@@ -47,7 +47,8 @@ body {
 }
 
 .drag-region button,
-.drag-region [role='combobox'] {
+.drag-region [role='combobox'],
+.drag-region [role='menubar'] {
   -webkit-app-region: no-drag;
 }
 
@@ -70,6 +71,18 @@ body {
 
   .shell-action {
     @apply inline-flex h-[26px] shrink-0 items-center justify-center rounded-md px-2 text-muted enabled:hover:bg-control enabled:hover:text-ink disabled:text-faint;
+  }
+
+  .shell-field {
+    @apply inline-flex h-[26px] shrink-0 items-stretch overflow-clip rounded-md bg-control text-ink tabular-nums;
+  }
+
+  .shell-field > * + * {
+    @apply border-s border-control-divider;
+  }
+
+  .shell-field-cell {
+    @apply flex items-center gap-2 px-2;
   }
 
   .inspector-field {

@@ -4,8 +4,8 @@ Start with the general shell. It establishes where animators look for tools, sel
 
 ## Workspace
 
-- One connected frame. The top rail holds action buttons. Transform tools float at the bottom center of the viewport. Use F to frame the selection in the viewport. The independently resizable Outliner sits to the left of the viewport. The Inspector sits on the right and shows the selected joints’ properties.
-- The timeline runs edge to edge beneath the viewport and side panels. The timeline is 81 px tall by default. The transport and timecode share a header with the frame ruler and thin draggable work area. The action row, combined ruler and work-area header, and each track row are 40 px tall. Playback loops over the work area. Double-click the work area strip to reset it. Drag on the ruler to scrub or in the track area to select a frame range. Before a clip is loaded the ruler shows frames 0–120. Contact ranges will need room for labels and trim handles.
+- One connected frame. The window bar holds native macOS controls and the in-app File, Edit, View, and Timeline menus. The action bar sits directly below it. Transform tools float at the bottom center of the viewport. Use F to frame the selection in the viewport. The Outliner starts on the left and Properties starts on the right. Drag their tabs to the opposite dock's outer edge to swap sides, or into the dock to group them. Drag a grouped tab to the empty side to split the docks again.
+- The timeline runs edge to edge beneath the viewport and side panels. The timeline is 73 px tall by default. The transport and timecode share a header with the frame ruler and thin draggable work area. The combined ruler and work-area header and each track row are 36 px tall. Playback loops over the work area. Double-click the work area strip to reset it. Drag on the ruler to scrub or in the track area to select a frame range. Before a clip is loaded the ruler shows frames 0–120. Contact ranges will need room for labels and trim handles.
 - Use one-pixel dividers between docked regions. Use rounded corners on controls and floating surfaces.
 
 ## Palette
@@ -29,7 +29,7 @@ Action buttons and idle mode tools sit flat and borderless. Show their button fi
 ## Density and alignment
 
 - Use a 4 px spacing grid. Default to even padding on all four sides in roughly 9 out of 10 components. Start with 12 px for panel headers and 4 px for square controls. Fixed-height labeled buttons and indented tree rows are exceptions.
-- Use 26 × 26 px icon buttons with centered 14–16 px glyphs. Use 26 px height and 8 px horizontal padding for labeled buttons. Give toolbars 8 px of padding on all sides. A 26 px control and a 1 px divider make a 43 px row.
+- Use 36 px for standard rows, including the action bar, panel headers, and timeline rows. The window bar and camera rail are 32 px tall. Compact tree rows have their own height. Use 26 × 26 px icon buttons with centered 14–16 px glyphs. Use 26 px height and 8 px horizontal padding for labeled buttons.
 - Measure from a shared axis. Center icons in their buttons and buttons on the toolbar's horizontal centerline. Align panel labels and fields to a shared 12 px leading inset. Measure from the painted edges of glyphs when an icon appears off-center.
 - Check at 1024 × 640 and 1440 × 900. Measure the timeline against the window edges, check shared insets and centerlines in the inspector, and verify visible keyboard focus. Try a long joint name and a long clip name.
 

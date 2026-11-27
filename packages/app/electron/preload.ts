@@ -10,6 +10,8 @@ const bridge: DilemmaBridge = {
   saveProject: (document, path, saveAs) =>
     ipcRenderer.invoke(Channels.saveProject, document, path, saveAs),
   exportGlb: (bytes, name) => ipcRenderer.invoke(Channels.exportGlb, bytes, name),
+  exportFbx: (bytes, name, fps, lastFrame) =>
+    ipcRenderer.invoke(Channels.exportFbx, bytes, name, fps, lastFrame),
   onMenu(listener) {
     const handler = (_event: IpcRendererEvent, action: MenuAction) => listener(action)
     ipcRenderer.on(Channels.menu, handler)

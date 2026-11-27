@@ -2,6 +2,7 @@
 import type { DilemmaDocument } from '@dilemma/core'
 
 export const ASSET_SCHEME = 'dilemma-asset'
+export const FBX_BAKE_FPS = 30
 
 export const Channels = {
   openCharacter: 'dilemma:open-character',
@@ -9,6 +10,7 @@ export const Channels = {
   openProject: 'dilemma:open-project',
   saveProject: 'dilemma:save-project',
   exportGlb: 'dilemma:export-glb',
+  exportFbx: 'dilemma:export-fbx',
   menu: 'dilemma:menu',
   openFile: 'dilemma:open-file',
 } as const
@@ -19,6 +21,7 @@ export type MenuAction =
   | 'saveProject'
   | 'saveProjectAs'
   | 'exportGlb'
+  | 'exportFbx'
   | 'undo'
   | 'redo'
   | 'frame'
@@ -48,6 +51,12 @@ export interface DilemmaBridge {
     saveAs: boolean,
   ): Promise<string | null>
   exportGlb(bytes: ArrayBuffer, name: string): Promise<string | null>
+  exportFbx(
+    bytes: ArrayBuffer,
+    name: string,
+    fps: number,
+    lastFrame: number,
+  ): Promise<string | null>
   onMenu(listener: (action: MenuAction) => void): () => void
   /** Files the main process asks the window to open, such as DILEMMA_OPEN at launch. */
   onOpenFile(listener: (file: OpenedFile) => void): () => void

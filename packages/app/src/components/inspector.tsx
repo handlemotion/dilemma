@@ -8,12 +8,14 @@ import {
   type Vec3,
 } from '@dilemma/core'
 import { compileClip, compileSkeleton, LOCAL_STRIDE, sampleClip } from '@dilemma/solve'
-import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Euler, MathUtils, Quaternion } from 'three'
 import { beginTransform } from '../animation.ts'
 import { useEditorState } from '../editor.ts'
 import { Icon } from '../icons/central.tsx'
 import { useUi } from '../ui-store.ts'
+import { InspectorSection } from './inspector-section.tsx'
+import { SceneInspector } from './scene-inspector.tsx'
 
 const axes = ['X', 'Y', 'Z'] as const
 const properties = [
@@ -62,9 +64,7 @@ export function Inspector() {
     if (compiled) sampleClip(compiled, playhead.frame, values)
     return values
   }, [compiled, playhead.frame, skeleton])
-  if (!selected.length) {
-    return <p className="p-3 text-muted">Select a joint to edit its transform.</p>
-  }
+  if (!selected.length) return <SceneInspector timing={doc.sceneTiming} />
 
   const showCharacter = selected.some(({ ref }) => ref.characterId !== selected[0]?.ref.characterId)
   return (
@@ -81,7 +81,7 @@ export function Inspector() {
             joint={joint}
             characterName={showCharacter ? character.name : undefined}
             clip={clip}
-            frame={clip ? playhead.frame : active ? 0 : previewFrame}
+            frame={clip ? playhead.frame : active ? doc.sceneTiming.start : previewFrame}
             local={clip ? local : null}
           />
         )
@@ -109,48 +109,22 @@ function JointInspector({
   frame: number
   local: Float64Array | null
 }) {
-  const railId = useId()
-  const propertiesId = useId()
-  const expanded = useUi((state) => state.inspectorExpansion[id] ?? defaultExpanded)
   return (
-    <article aria-labelledby={railId} className="border-b border-line">
-      <h2>
-        <button
-          id={railId}
-          type="button"
-          aria-expanded={expanded}
-          aria-controls={propertiesId}
-          className="group flex h-10 w-full items-center gap-2 px-3 text-left hover:bg-control"
-          onClick={() => useUi.getState().setInspectorExpanded(id, !expanded)}
-        >
-          <Icon
-            name="chevronRight"
-            size={14}
-            className="shrink-0 text-muted group-aria-expanded:rotate-90"
-          />
-          <span className="min-w-0 flex-1 truncate font-semibold" title={joint.name}>
-            {joint.name}
-          </span>
-          {characterName && (
-            <span className="max-w-2/5 truncate text-[11px] text-muted" title={characterName}>
-              {characterName}
-            </span>
-          )}
-        </button>
-      </h2>
-      <div id={propertiesId} hidden={!expanded}>
-        {expanded && (
-          <JointProperties
-            key={JSON.stringify([clip?.id, frame])}
-            selected={selected}
-            joint={joint}
-            clip={clip}
-            frame={frame}
-            local={local}
-          />
-        )}
-      </div>
-    </article>
+    <InspectorSection
+      id={id}
+      title={joint.name}
+      summary={characterName}
+      defaultExpanded={defaultExpanded}
+    >
+      <JointProperties
+        key={JSON.stringify([clip?.id, frame])}
+        selected={selected}
+        joint={joint}
+        clip={clip}
+        frame={frame}
+        local={local}
+      />
+    </InspectorSection>
   )
 }
 
@@ -168,6 +142,7 @@ function JointProperties({
   local: Float64Array | null
 }) {
   const draft = useUi((state) => state.transformDraft)
+  const unkeyed = useUi((state) => state.unkeyedTransforms)
   const track = clip?.tracks.find((entry) => entry.joint === selected.joint)
   const preview =
     draft?.joint.characterId === selected.characterId && draft.joint.joint === selected.joint
@@ -190,7 +165,13 @@ function JointProperties({
   return (
     <>
       {properties.map(({ channel, label, step }) => {
-        const key = keys[channel]
+        const pendingKey = unkeyed.find(
+          ({ joint: ref, key }) =>
+            ref.characterId === selected.characterId &&
+            ref.joint === selected.joint &&
+            key.channel === channel,
+        )?.key
+        const key = pendingKey?.channel === channel ? pendingKey : keys[channel]
         const values = toAxes(key)
         const shown = preview?.channel === channel ? toAxes(preview) : values
         const keyed = track?.[channel]?.frames.includes(frame) ?? false
@@ -209,7 +190,7 @@ function JointProperties({
                 onClick={() => {
                   const edit = beginTransform(selected)
                   edit.preview(key)
-                  edit.finish(true)
+                  edit.finish(true, true)
                 }}
               >
                 <Icon name="keyframe" size={12} className={keyed ? 'fill-current' : undefined} />

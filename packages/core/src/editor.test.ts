@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   addCharacter,
+  deleteClipKeys,
   deleteRotationKeys,
   deleteTransformKeys,
   removeCharacter,
+  setClipTiming,
+  setLimbTargetKey,
   setRotationKey,
+  setSceneTiming,
   setTransformKey,
   setTransformKeys,
 } from './commands.ts'
@@ -44,6 +48,33 @@ function mulberry32(seed: number) {
 }
 
 describe('Editor', () => {
+  it('changes clip timing without moving keys and clamps the playhead through undo and redo', () => {
+    const editor = new Editor()
+    editor.run(addCharacter(character('a'), [clip('walk', 'a')]))
+    editor.run(setRotationKey('walk', 0, 4, [0, 0, 0, 1]))
+    editor.run(setLimbTargetKey('walk', 2, 8, [1, 2, 3]))
+    const before = editor.getState().doc
+
+    expect(() => editor.run(setClipTiming('walk', { start: 5 }))).toThrow('include all keys')
+    expect(() => editor.run(setClipTiming('walk', { end: 7 }))).toThrow('include all keys')
+    expect(() => editor.run(setClipTiming('walk', { fps: 0 }))).toThrow('greater than zero')
+    expect(editor.getState().doc).toBe(before)
+
+    editor.setPlayhead({ frame: 10 })
+    editor.run(setClipTiming('walk', { start: 2, end: 8, fps: 29.97 }))
+    const revised = editor.getState().doc.clips[0]!
+    expect(revised).toEqual({ ...before.clips[0], start: 2, end: 8, fps: 29.97 })
+    expect(migrate(editor.getState().doc).clips[0]).toEqual(revised)
+    expect(editor.getState().playhead.frame).toBe(8)
+
+    editor.undo()
+    expect(editor.getState().doc).toEqual(before)
+    editor.setPlayhead({ frame: 0 })
+    editor.redo()
+    expect(editor.getState().doc.clips[0]).toEqual(revised)
+    expect(editor.getState().playhead.frame).toBe(2)
+  })
+
   it('undoes and redoes through the command log', () => {
     const editor = new Editor()
     editor.run(addCharacter(character('a'), [clip('c1', 'a')]))
@@ -163,6 +194,53 @@ describe('migrate', () => {
     editor.run(addCharacter(character('a'), [clip('c', 'a')]))
     const doc = editor.getState().doc
     expect(migrate(JSON.parse(JSON.stringify(doc)))).toEqual(doc)
+  })
+
+  it('loads version-three projects and saves undoable scene defaults alongside their authored clips', () => {
+    const raw = { version: 3, characters: [character('a')], clips: [clip('walk', 'a')] }
+    const doc = migrate(raw)
+    expect(doc.sceneTiming).toEqual({ fps: 30, start: 0, end: 120 })
+    expect(doc.clips).toEqual(raw.clips)
+
+    const editor = new Editor(doc)
+    const sceneTiming = { fps: 23.976, start: -12, end: 48 }
+    editor.run(setSceneTiming(sceneTiming))
+    expect(() => editor.run(setSceneTiming({ end: -13 }))).toThrow()
+    expect(migrate(JSON.parse(JSON.stringify(editor.getState().doc)))).toEqual({
+      ...doc,
+      sceneTiming,
+    })
+    expect(editor.getState().doc.clips).toBe(doc.clips)
+    expect(editor.undo()).toBe(true)
+    expect(editor.getState().doc).toEqual(doc)
+    expect(editor.redo()).toBe(true)
+    expect(editor.getState().doc.sceneTiming).toEqual(sceneTiming)
+  })
+
+  it('loads a version-two FK clip and round trips its new undoable IK keys', () => {
+    const characterId = 'a'
+    const raw = {
+      version: 2,
+      characters: [character(characterId)],
+      clips: [
+        {
+          ...clip('walk', characterId),
+          tracks: [{ joint: 2, translations: { frames: [4], values: [0, 2, 0] } }],
+        },
+      ],
+    }
+    const doc = migrate(raw)
+    expect(doc.clips).toEqual(raw.clips)
+    const editor = new Editor(doc)
+    editor.run(setLimbTargetKey('walk', 2, 4, [1, 2, 3]))
+    const keyed = migrate(JSON.parse(JSON.stringify(editor.getState().doc)))
+    expect(keyed.clips[0]?.limb).toEqual({ tip: 2, targets: { frames: [4], values: [1, 2, 3] } })
+    editor.run(deleteClipKeys('walk', [], 4, 4, { limb: true }))
+    expect(editor.getState().doc).toEqual(doc)
+    expect(editor.undo()).toBe(true)
+    expect(editor.getState().doc).toEqual(keyed)
+    expect(editor.undo()).toBe(true)
+    expect(editor.getState().doc).toEqual(doc)
   })
 
   it('loads shared version-one key times and preserves translation through rotation edits and undo', () => {

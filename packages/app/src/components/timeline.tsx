@@ -11,7 +11,7 @@ import {
 import { selectJoints } from '../animation.ts'
 import { editor, useEditorState } from '../editor.ts'
 import { Icon } from '../icons/central.tsx'
-import { PREVIEW_END, PREVIEW_FPS, useUi, type TimelineRange } from '../ui-store.ts'
+import { resolveWorkArea, useUi, type TimelineRange } from '../ui-store.ts'
 import {
   PREVIEW_ROW,
   TIMELINE_HEADER_HEIGHT as HEADER,
@@ -63,8 +63,7 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
   const previewFrame = useUi((s) => s.previewFrame)
   const timelineRange = useUi((s) => s.timelineRange)
   const clipId = clip?.id ?? null
-  const start = clip?.start ?? 0
-  const end = clip?.end ?? PREVIEW_END
+  const { start, end, fps } = clip ?? doc.sceneTiming
   const workArea = useUi((s) => s.workArea)
   const frame = clip ? playheadFrame : previewFrame
   const allRows = useMemo(
@@ -91,9 +90,7 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
     summary
   const clamp = (value: number) => Math.min(end, Math.max(start, value))
 
-  const workStart = clamp(workArea?.clipId === clipId ? workArea.start : start)
-  const workEnd = Math.max(workStart, clamp(workArea?.clipId === clipId ? workArea.end : end))
-  const fps = Math.max(1, Math.round(clip?.fps ?? PREVIEW_FPS))
+  const { start: workStart, end: workEnd } = resolveWorkArea(clip, doc.sceneTiming, workArea)
   const timecode = formatTimelineTime(frame, fps)
 
   useLayoutEffect(() => {
@@ -384,6 +381,7 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
                       if (!character) return
                       activateRow(row.id)
                       selectJoints([{ characterId: character.id, joint }])
+                      if (row.id === 'ik') useUi.getState().setTransformMode('ik')
                     }}
                     onKeyDown={(event) => handleTimelineKey(event, row.id)}
                   >

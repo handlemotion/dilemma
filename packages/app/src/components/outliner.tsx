@@ -8,7 +8,7 @@ import characterIcon from '../icons/outliner-character.svg?raw'
 import jointIcon from '../icons/outliner-joint.svg?raw'
 import outlinerSprite from '../icons/outliner-sprite.svg?raw'
 import { useUi } from '../ui-store.ts'
-import { PanelHeader } from './panel-header.tsx'
+import { PanelContent, PanelHeader } from './panel-header.tsx'
 
 interface TreeNode {
   path: string
@@ -101,7 +101,6 @@ const treeCss = `
 export function Outliner() {
   const characters = useEditorState((s) => s.doc.characters)
   const hasCharacters = characters.length > 0
-  const searchOpen = useUi((s) => s.outlinerSearchOpen) && hasCharacters
   const selected = useEditorState((s) => s.selection.joints)
   const focus = useUi((s) => s.outlinerFocus)
   const setFocus = useUi((s) => s.setOutlinerFocus)
@@ -136,7 +135,6 @@ export function Outliner() {
       ? selectedNode.path.slice(prefix.length)
       : null
   const searchInput = useRef<HTMLInputElement>(null)
-  const searchButton = useRef<HTMLButtonElement>(null)
   const pendingReveal = useRef<string | null>(null)
   const syncing = useRef(false)
   const liveRows = useRef(visible)
@@ -236,18 +234,6 @@ export function Outliner() {
     model.getItem(path)?.toggleSelect()
   }
 
-  useLayoutEffect(() => {
-    if (searchOpen) searchInput.current?.focus()
-  }, [searchOpen])
-
-  function toggleSearch() {
-    if (searchOpen) {
-      model.closeSearch()
-      searchButton.current?.focus()
-    }
-    useUi.getState().setOutlinerSearchOpen(!searchOpen)
-  }
-
   const expansionLabel = allExpanded ? 'Collapse all' : 'Expand all'
   const crumbs = focused
     ? focused.path
@@ -255,126 +241,114 @@ export function Outliner() {
         .map((_, index, parts) => nodes.get(parts.slice(0, index + 1).join('/')))
     : []
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <PanelHeader title="Outliner">
-        <div className="flex shrink-0 items-center gap-1.5">
-          <button
-            type="button"
-            aria-label={expansionLabel}
-            aria-expanded={allExpanded}
-            aria-controls={hasCharacters ? 'outliner-tree' : undefined}
-            title={expansionLabel}
-            className="shell-icon"
-            disabled={branches.length === 0}
-            onClick={() => {
-              model.closeSearch()
-              model.resetPaths(treePaths, { initialExpandedPaths: allExpanded ? [] : branches })
-            }}
-          >
-            <Icon name={allExpanded ? 'collapseAll' : 'expandAll'} size={16} />
-          </button>
-          <button
-            ref={searchButton}
-            type="button"
-            aria-label="Search Outliner"
-            aria-expanded={searchOpen}
-            aria-controls={searchOpen ? 'outliner-joint-search' : undefined}
-            title="Search Outliner"
-            className="shell-icon"
-            disabled={!hasCharacters}
-            onClick={toggleSearch}
-          >
-            <Icon name="search" size={14} />
-          </button>
-        </div>
-      </PanelHeader>
-      {searchOpen && (
-        <input
-          id="outliner-joint-search"
-          ref={searchInput}
-          type="search"
-          aria-label="Find a joint"
-          placeholder="Find a joint"
-          className="h-10 w-full shrink-0 rounded-none border-b border-line bg-transparent px-3 text-ink outline-none placeholder:text-faint focus-visible:border-accent"
-          onChange={(event) => model.setSearch(event.currentTarget.value || null)}
-          onKeyDown={(event) => {
-            if (event.key !== 'Escape') return
-            event.preventDefault()
-            toggleSearch()
+    <>
+      <PanelHeader panel="outliner">
+        <button
+          type="button"
+          aria-label={expansionLabel}
+          aria-expanded={allExpanded}
+          aria-controls={hasCharacters ? 'outliner-tree' : undefined}
+          title={expansionLabel}
+          className="shell-icon"
+          disabled={branches.length === 0}
+          onClick={() => {
+            model.closeSearch()
+            model.resetPaths(treePaths, { initialExpandedPaths: allExpanded ? [] : branches })
           }}
-        />
-      )}
-      {focused && (
-        <nav
-          aria-label="Outliner branch"
-          className="flex shrink-0 gap-1 overflow-x-auto px-2 pb-2 whitespace-nowrap"
         >
-          <button
-            type="button"
-            className="text-muted hover:text-ink"
-            onClick={() => setFocus(null)}
+          <Icon name={allExpanded ? 'collapseAll' : 'expandAll'} size={16} />
+        </button>
+      </PanelHeader>
+      <PanelContent panel="outliner" className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <label className="my-1 flex h-8 shrink-0 items-center gap-1.5 border-b border-line px-3 pb-2.5 text-faint focus-within:border-accent">
+          <Icon name="search" size={14} className="shrink-0" />
+          <input
+            id="outliner-joint-search"
+            ref={searchInput}
+            type="search"
+            aria-label="Find a joint"
+            placeholder="Find a joint"
+            className="h-full min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-faint"
+            onChange={(event) => model.setSearch(event.currentTarget.value || null)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape') return
+              event.preventDefault()
+              model.closeSearch()
+            }}
+          />
+        </label>
+        {focused && (
+          <nav
+            aria-label="Outliner branch"
+            className="flex shrink-0 gap-1 overflow-x-auto px-2 pb-2 whitespace-nowrap"
           >
-            Scene
-          </button>
-          {crumbs.map(
-            (node) =>
-              node && (
-                <button
-                  type="button"
-                  key={node.path}
-                  className="flex shrink-0 items-center gap-0.5 text-muted hover:text-ink"
-                  aria-current={node.path === focus ? 'location' : undefined}
-                  onClick={() => setFocus(node.path)}
-                >
-                  <Icon name="chevronRight" size={12} />
-                  {node.name}
-                </button>
-              ),
-          )}
-        </nav>
-      )}
-      {hasCharacters && (
-        <FileTree
-          id="outliner-tree"
-          model={model}
-          style={treeStyle}
-          data-focused-branch={focused?.joint ? true : undefined}
-          className="min-h-0 flex-1 overflow-hidden"
-          onClickCapture={toggleJoint}
-          renderContextMenu={(item, menu) => {
-            const node = visible.get(item.path.replace(/\/$/, ''))
-            return (
-              <div className="min-w-32 rounded-md border border-line bg-panel p-1 shadow-md">
-                <button
-                  type="button"
-                  className="block w-full rounded px-2 py-1 text-left hover:bg-control disabled:opacity-50"
-                  disabled={!selectedNode}
-                  onClick={() => {
-                    menu.close()
-                    reveal()
-                  }}
-                >
-                  Reveal selection
-                </button>
-                {item.kind === 'directory' && node && (
+            <button
+              type="button"
+              className="text-muted hover:text-ink"
+              onClick={() => setFocus(null)}
+            >
+              Scene
+            </button>
+            {crumbs.map(
+              (node) =>
+                node && (
                   <button
                     type="button"
-                    className="block w-full rounded px-2 py-1 text-left hover:bg-control"
+                    key={node.path}
+                    className="flex shrink-0 items-center gap-0.5 text-muted hover:text-ink"
+                    aria-current={node.path === focus ? 'location' : undefined}
+                    onClick={() => setFocus(node.path)}
+                  >
+                    <Icon name="chevronRight" size={12} />
+                    {node.name}
+                  </button>
+                ),
+            )}
+          </nav>
+        )}
+        {hasCharacters && (
+          <FileTree
+            id="outliner-tree"
+            model={model}
+            style={treeStyle}
+            data-focused-branch={focused?.joint ? true : undefined}
+            className="mt-1 min-h-0 flex-1 overflow-hidden"
+            onClickCapture={toggleJoint}
+            renderContextMenu={(item, menu) => {
+              const node = visible.get(item.path.replace(/\/$/, ''))
+              return (
+                <div className="min-w-32 rounded-md border border-line bg-panel p-1 shadow-md">
+                  <button
+                    type="button"
+                    className="block w-full rounded px-2 py-1 text-left hover:bg-control disabled:opacity-50"
+                    disabled={!selectedNode}
                     onClick={() => {
                       menu.close()
-                      model.closeSearch()
-                      setFocus(node.path)
+                      reveal()
                     }}
                   >
-                    Focus branch
+                    Reveal selection
                   </button>
-                )}
-              </div>
-            )
-          }}
-        />
-      )}
-    </div>
+                  {item.kind === 'directory' && node && (
+                    <button
+                      type="button"
+                      className="block w-full rounded px-2 py-1 text-left hover:bg-control"
+                      onClick={() => {
+                        menu.close()
+                        model.closeSearch()
+                        setFocus(node.path)
+                      }}
+                    >
+                      Focus branch
+                    </button>
+                  )}
+                </div>
+              )
+            }}
+          />
+        )}
+      </PanelContent>
+    </>
   )
 }
 

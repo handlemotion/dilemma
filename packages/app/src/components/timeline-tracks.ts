@@ -1,10 +1,10 @@
 import { TRANSFORM_CHANNELS, type Character, type Clip, type JointRef } from '@dilemma/core'
 
-export const TRACK_HEIGHT = 40
-export const TIMELINE_HEADER_HEIGHT = 40
+export const TRACK_HEIGHT = 36
+export const TIMELINE_HEADER_HEIGHT = 36
 export const DEFAULT_TIMELINE_HEIGHT = TIMELINE_HEADER_HEIGHT + TRACK_HEIGHT + 1
 
-export type TimelineRowId = 'preview' | 'character' | `joint:${string}`
+export type TimelineRowId = 'preview' | 'character' | 'ik' | `joint:${string}`
 
 export interface TimelineRow {
   id: TimelineRowId
@@ -39,9 +39,21 @@ export function timelineRows(character: Character, clip: Clip): TimelineRow[] {
     }
   }
 
+  const limb = clip.limb
+  const tip = limb && joints[limb.tip]
+  if (limb && tip) for (const frame of limb.targets.frames) summary.add(frame)
   const rows: TimelineRow[] = [
     { id: 'character', name: character.name, joint: null, depth: 0, frames: sortedFrames(summary) },
   ]
+  if (limb && tip) {
+    rows.push({
+      id: 'ik',
+      name: `${tip.name} IK target`,
+      joint: limb.tip,
+      depth: 1,
+      frames: limb.targets.frames,
+    })
+  }
   const roots: number[] = []
   const children: number[][] = joints.map(() => [])
   joints.forEach(({ parent }, index) => {
@@ -99,20 +111,19 @@ export function keyframeInDirection(
   )
   const inClip = (key: number) => key >= clip.start && key <= clip.end
   let nearest: number | undefined
+  function consider(frames: number[] | undefined) {
+    const candidate =
+      direction === -1
+        ? frames?.findLast((key) => key < frame && inClip(key))
+        : frames?.find((key) => key > frame && inClip(key))
+    if (candidate !== undefined && (nearest === undefined || (candidate - nearest) * direction < 0))
+      nearest = candidate
+  }
+  const limb = clip.limb
+  if (limb && (joints.size === 0 || joints.has(limb.tip))) consider(limb.targets.frames)
   for (const track of clip.tracks) {
     if (joints.size > 0 && !joints.has(track.joint)) continue
-    for (const channel of TRANSFORM_CHANNELS) {
-      const frames = track[channel]?.frames
-      const candidate =
-        direction === -1
-          ? frames?.findLast((key) => key < frame && inClip(key))
-          : frames?.find((key) => key > frame && inClip(key))
-      if (
-        candidate !== undefined &&
-        (nearest === undefined || (candidate - nearest) * direction < 0)
-      )
-        nearest = candidate
-    }
+    for (const channel of TRANSFORM_CHANNELS) consider(track[channel]?.frames)
   }
   return nearest
 }

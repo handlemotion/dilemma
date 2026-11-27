@@ -1,6 +1,6 @@
 {
   "name": "@dilemma/app",
-  "version": "0.1.0",
+  "version": "2026.0.1",
   "private": true,
   "description": "Dilemma desktop app",
   "license": "AGPL-3.0-only",
@@ -12,7 +12,8 @@
     "build": "vite build && node scripts/build-electron.mjs",
     "start": "electron .",
     "typecheck": "tsc -p tsconfig.json && tsc -p electron/tsconfig.json",
-    "package": "pnpm run build && electron-builder --mac --dir",
+    "package": "pnpm run build && electron-builder --mac --dir --config.mac.identity=null --publish never",
+    "package:release": "pnpm run build && electron-builder --mac dmg --arm64 --x64 --publish never --config.directories.output=release/distribution",
     "install-app": "pnpm run package && node scripts/install-app.mjs"
   },
   "devDependencies": {
@@ -53,8 +54,10 @@
       "target": [
         "dir"
       ],
-      "category": "public.app-category.graphics-design",
-      "identity": null
+      "category": "public.app-category.graphics-design"
+    },
+    "dmg": {
+      "artifactName": "Dilemma-${version}-mac-${arch}.${ext}"
     },
     "fileAssociations": [
       {

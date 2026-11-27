@@ -1,25 +1,21 @@
 import { useEffect } from 'react'
 import { editor, useEditorState } from './editor.ts'
-import { PREVIEW_END, PREVIEW_FPS, useUi } from './ui-store.ts'
+import { resolveWorkArea, useUi } from './ui-store.ts'
 
-/** While playing, advance the playhead on wall-clock time, looping over the clip. */
+/** While playing, advance the playhead on wall-clock time within the work area. */
 export function usePlayback(): void {
   const playing = useUi((s) => s.playing)
-
-  const clipId = useEditorState((s) => s.playhead.clipId)
+  const clip = useEditorState(({ doc, playhead }) =>
+    doc.clips.find(({ id }) => id === playhead.clipId),
+  )
+  const sceneTiming = useEditorState(({ doc }) => doc.sceneTiming)
   const workArea = useUi((s) => s.workArea)
+  const { clipId, start, end } = resolveWorkArea(clip, sceneTiming, workArea)
+  const fps = (clip ?? sceneTiming).fps
 
   useEffect(() => {
     if (!playing) return
-    const { playhead, doc } = editor.getState()
-    const clip = doc.clips.find((c) => c.id === clipId)
-    const baseStart = clip?.start ?? 0
-    const baseEnd = clip?.end ?? PREVIEW_END
-    const area = workArea?.clipId === (clip?.id ?? null) ? workArea : null
-    const start = Math.max(baseStart, Math.min(baseEnd, area?.start ?? baseStart))
-    const end = Math.max(start, Math.min(baseEnd, area?.end ?? baseEnd))
-    const frame = clip ? playhead.frame : useUi.getState().previewFrame
-    const fps = clip?.fps ?? PREVIEW_FPS
+    const frame = clipId ? editor.getState().playhead.frame : useUi.getState().previewFrame
     const length = end - start + 1
     const startFrame = frame < start || frame >= end ? start : frame
     let offset = startFrame - start
@@ -30,13 +26,19 @@ export function usePlayback(): void {
       if (!ui.playing) return
       const elapsed = Math.max(0, now - lastTick) / 1000
       lastTick = now
-      offset = (offset + elapsed * fps * ui.playbackSpeed) % length
-      const next = start + Math.floor(offset)
-      if (clip) editor.setPlayhead({ frame: next })
-      else if (useUi.getState().previewFrame !== next) useUi.getState().setPreviewFrame(next)
+      offset += elapsed * fps * ui.playbackSpeed
+      const finished = !ui.loopPlayback && offset >= length
+      if (ui.loopPlayback) offset %= length
+      const next = Math.min(end, start + Math.floor(offset))
+      if (clipId) editor.setPlayhead({ frame: next })
+      else ui.setPreviewFrame(next)
+      if (finished) {
+        ui.setPlaying(false)
+        return
+      }
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [playing, clipId, workArea])
+  }, [playing, clipId, start, end, fps])
 }

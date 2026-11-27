@@ -1,3 +1,5 @@
+import type { PoseKey } from '@dilemma/core'
+import { applyLimb } from './limb.ts'
 import {
   LOCAL_STRIDE,
   WORLD_STRIDE,
@@ -6,6 +8,26 @@ import {
   type CompiledChannel,
   type Pose,
 } from './skeleton.ts'
+
+export interface PosePreview {
+  local: Float64Array
+  ik: Pick<Pose['ik'], 'tip' | 'target'> | null
+}
+
+export function compilePosePreview(
+  jointCount: number,
+  edits: readonly { joint: number; key: PoseKey }[],
+): PosePreview {
+  const local = new Float64Array(jointCount * LOCAL_STRIDE).fill(NaN)
+  let ik: PosePreview['ik'] = null
+  for (const { joint, key } of edits) {
+    if (key.channel === 'ikTarget') ik = { tip: joint, target: Float64Array.from(key.value) }
+    else local.set(key.value, joint * LOCAL_STRIDE + localOffsets[key.channel])
+  }
+  return { local, ik }
+}
+
+const localOffsets = { translations: 0, rotations: 3, scales: 7 } as const
 
 /**
  * Full pose solve: sample the clip at `frame` into local transforms, then
@@ -17,10 +39,28 @@ export function solvePose(
   clip: CompiledClip | null,
   frame: number,
   pose: Pose,
+  preview?: PosePreview,
 ): void {
   pose.local.set(skeleton.rest)
   if (clip) sampleClip(clip, frame, pose.local)
+  if (preview) {
+    const { local } = preview
+    for (let i = 0; i < local.length; i++) {
+      const value = local[i]!
+      if (!Number.isNaN(value)) pose.local[i] = value
+    }
+  }
   computeWorld(skeleton, pose)
+  pose.ik.tip = -1
+  if (preview?.ik) {
+    pose.ik.tip = preview.ik.tip
+    pose.ik.target.set(preview.ik.target)
+  } else if (clip?.limb) {
+    pose.ik.tip = clip.limb.tip
+    sampleChannel(clip.limb.targets, frame, pose.ik.target, 0, lerp3)
+  }
+  pose.ik.applied = pose.ik.tip >= 0 && applyLimb(skeleton, pose)
+  if (pose.ik.applied) computeWorld(skeleton, pose)
 }
 
 export function sampleClip(clip: CompiledClip, frame: number, local: Float64Array): void {

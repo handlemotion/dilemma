@@ -2,7 +2,7 @@
 
 Dilemma is an open source desktop app for animating 3D characters. You drop in a skinned character, confirm its joints and start posing with full-body IK, and the animation goes back to Maya or Blender as keys you can still edit.
 
-We're making it for the animators at our studio, Chow Mein. Every milestone ends with one of them using the build on a real character, so it changes a lot and it's macOS only for now.
+We're making it for the animators at our studio, Chow Mein. It changes a lot and it's macOS only for now.
 
 ## What we're betting on
 
@@ -10,7 +10,7 @@ Contacts live on the timeline. "Hand grips the cup from frame 20 to 48" is a cli
 
 ## Where it is now
 
-Right now it loads a skinned glTF, shows the mesh and skeleton, plays the clip that came in the file, and lets you pick joints in the viewport or the skeleton panel. Posing and keying on plain FK comes next, with save, undo and glTF export, then controls and full-body IK. Contacts, motion paths and the Maya and Blender bridges come after that.
+Right now it loads a skinned glTF, shows the mesh and skeleton, plays the clip that came in the file, and lets you pick joints in the viewport or the skeleton panel. Posing and keying on plain FK comes next, with save, undo and glTF export, then controls and full-body IK. Contacts, motion paths and the Maya and Blender bridges come after that, and [docs/roadmap.md](docs/roadmap.md) has the rest of the plan.
 
 ## Running it
 

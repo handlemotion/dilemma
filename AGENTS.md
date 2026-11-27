@@ -38,6 +38,6 @@ There are five packages under `packages/`, and a package only imports the ones b
 - Blender runs as a separate command-line process. Don't copy its code in.
 - The Maya bridge lives in its own folder and links nothing from Autodesk's SDK into the app.
 
-## Milestones
+## Roadmap
 
-A milestone is done when its checks pass. Don't start work on a later milestone until it has its own brief.
+[docs/roadmap.md](docs/roadmap.md) has where the product is headed, the milestones and the decisions still open. It's a direction, not a spec.

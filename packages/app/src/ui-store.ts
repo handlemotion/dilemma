@@ -1,3 +1,4 @@
+import type { JointRef, Quat } from '@dilemma/core'
 import type { CharacterAssets } from '@dilemma/io'
 import { create } from 'zustand'
 
@@ -8,6 +9,12 @@ export interface TimelineRange {
   clipId: string | null
   anchor: number
   edge: number
+}
+
+export interface RotationDraft {
+  joint: JointRef
+  frame: number
+  rotation: Quat | null
 }
 
 /** UI and render-resource state. Never document state: that lives in the editor. */
@@ -25,13 +32,18 @@ interface UiState {
   playing: boolean
   loading: string | null
   error: string | null
+  projectPath: string | null
+  rotationDraft: RotationDraft | null
   /** Meshes and bones per character id, from io. */
   assets: ReadonlyMap<string, CharacterAssets>
   fps: number
   setPlaying(playing: boolean): void
   setLoading(name: string | null): void
   setError(error: string | null): void
+  setProjectPath(path: string): void
+  setRotationDraft(draft: RotationDraft | null): void
   addAssets(id: string, assets: CharacterAssets): void
+  setAssets(assets: ReadonlyMap<string, CharacterAssets>): void
   setFps(fps: number): void
 }
 
@@ -49,11 +61,16 @@ export const useUi = create<UiState>((set) => ({
   playing: false,
   loading: null,
   error: null,
+  projectPath: null,
+  rotationDraft: null,
   assets: new Map(),
   fps: 0,
   setPlaying: (playing) => set({ playing }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
+  setProjectPath: (projectPath) => set({ projectPath }),
+  setRotationDraft: (rotationDraft) => set({ rotationDraft }),
   addAssets: (id, assets) => set((s) => ({ assets: new Map(s.assets).set(id, assets) })),
+  setAssets: (assets) => set({ assets }),
   setFps: (fps) => set({ fps }),
 }))

@@ -1,6 +1,7 @@
 import { Select } from '@base-ui/react/select'
 import type { Clip } from '@dilemma/core'
 import { useEffect, useRef, type ReactNode } from 'react'
+import { deleteKeys, keySelection, newClip } from '../animation.ts'
 import { editor, useEditorState } from '../editor.ts'
 import { PREVIEW_END, PREVIEW_FPS, useUi, type TimelineRange } from '../ui-store.ts'
 
@@ -67,6 +68,14 @@ export function Timeline() {
     selection.joints.filter((j) => j.characterId === clip?.characterId).map((j) => j.joint),
   )
   const keyFrames = clip ? keysFor(clip, selectedJoints) : []
+  const firstKey = range ? Math.min(range.anchor, range.edge) : frame
+  const lastKey = range ? Math.max(range.anchor, range.edge) : frame
+  const canDelete =
+    clip?.tracks.some(
+      (track) =>
+        selectedJoints.has(track.joint) &&
+        track.rotations?.frames.some((key) => key >= firstKey && key <= lastKey),
+    ) ?? false
 
   useEffect(() => {
     const el = canvas.current
@@ -160,12 +169,36 @@ export function Timeline() {
             </TransportButton>
           </div>
         </div>
-        {clip && (
-          <div className="flex min-w-0 items-center gap-2 px-2 py-0.5">
-            <ClipSelect clips={doc.clips} value={clip.id} />
-            <span className="shrink-0 text-faint">{clip.fps} fps</span>
-          </div>
-        )}
+        <div className="flex min-w-0 items-center gap-1.5 px-2 py-0.5">
+          {doc.clips.length > 0 && <ClipSelect clips={doc.clips} value={clipId} />}
+          <button
+            type="button"
+            className="shell-action"
+            onClick={newClip}
+            disabled={!doc.characters.length}
+          >
+            New clip
+          </button>
+          <button
+            type="button"
+            className="shell-action"
+            onClick={keySelection}
+            title="Set rotation key (S)"
+            disabled={selection.joints.length !== 1}
+          >
+            Set key
+          </button>
+          <button
+            type="button"
+            className="shell-action"
+            onClick={deleteKeys}
+            title="Delete selected rotation keys"
+            disabled={!canDelete}
+          >
+            Delete keys
+          </button>
+          {clip && <span className="shrink-0 text-faint">{clip.fps} fps</span>}
+        </div>
       </div>
       <canvas
         key={clipId}
@@ -302,7 +335,9 @@ function keysFor(clip: Clip, joints: Set<number>): number[] {
   const frames = new Set<number>()
   for (const track of clip.tracks) {
     if (joints.size > 0 && !joints.has(track.joint)) continue
-    for (const f of track.frames) frames.add(f)
+    for (const channel of [track.translations, track.rotations, track.scales]) {
+      for (const frame of channel?.frames ?? []) frames.add(frame)
+    }
   }
   return [...frames]
 }

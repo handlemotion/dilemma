@@ -40,7 +40,11 @@ describe('glTF import', () => {
     const imported = fromGltf(await parse(syntheticGltf()), 'arm.gltf')
     const clip = imported.clips[0]!
     expect(clip).toMatchObject({ name: 'Wave', fps: 30, start: 0, end: 20 })
-    for (const track of clip.tracks) expect(track.frames.every(Number.isInteger)).toBe(true)
+    for (const track of clip.tracks) {
+      for (const channel of [track.translations, track.rotations, track.scales]) {
+        if (channel) expect(channel.frames.every(Number.isInteger)).toBe(true)
+      }
+    }
     // The wrist never moves relative to its parent, so it has no track.
     expect(clip.tracks.map((t) => t.joint).toSorted()).toEqual([0, 1])
   })

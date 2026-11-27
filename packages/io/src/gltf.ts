@@ -1,5 +1,5 @@
 import type { Character, Clip, Joint, JointTrack, Transform } from '@dilemma/core'
-import { AnimationMixer, Matrix4, Quaternion, Vector3, type Object3D } from 'three'
+import { AnimationMixer, LoopOnce, Matrix4, Quaternion, Vector3, type Object3D } from 'three'
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js'
 
 /** Render-side resources for an imported character. Not document data. */
@@ -20,6 +20,8 @@ export interface ImportOptions {
   name?: string
   /** Frame rate for baked clips. Defaults to one guessed from the key times, else 30. */
   fps?: number
+  /** Load only the character when the project already contains the clips. */
+  skipAnimations?: boolean
   id?: string
 }
 
@@ -64,6 +66,9 @@ export function fromGltf(gltf: GLTF, uri: string, options: ImportOptions = {}): 
   }))
 
   const character: Character = { id, name, source: { uri }, skeleton: { joints } }
+  const assets = { root, bones: jointNodes }
+  if (options.skipAnimations || gltf.animations.length === 0)
+    return { character, clips: [], assets }
 
   // Baking plays each animation through the scene; remember rest to restore it after.
   const saved: [Object3D, Vector3, Quaternion, Vector3][] = []
@@ -81,11 +86,11 @@ export function fromGltf(gltf: GLTF, uri: string, options: ImportOptions = {}): 
   }
   root.updateMatrixWorld(true)
 
-  return { character, clips, assets: { root, bones: jointNodes } }
+  return { character, clips, assets }
 }
 
 /** Every skin joint, in scene traversal order, so parents come before children. */
-function collectJoints(root: Object3D): Object3D[] {
+export function collectJoints(root: Object3D): Object3D[] {
   const set = new Set<Object3D>()
   root.traverse((object) => {
     const skinned = object as Object3D & {
@@ -144,6 +149,8 @@ function bakeClip(
 ): Clip {
   const mixer = new AnimationMixer(root)
   const action = mixer.clipAction(animation)
+  action.setLoop(LoopOnce, 1)
+  action.clampWhenFinished = true
   action.play()
   const end = Math.max(0, Math.round(animation.duration * fps))
   const frames: number[] = []
@@ -176,10 +183,10 @@ function bakeClip(
 
   const tracks: JointTrack[] = []
   joints.forEach((joint, i) => {
-    const track: JointTrack = { joint: i, frames: [...frames] }
-    if (varies(t[i]!, joint.rest.translation)) track.translations = t[i]!
-    if (varies(r[i]!, joint.rest.rotation, true)) track.rotations = r[i]!
-    if (varies(s[i]!, joint.rest.scale)) track.scales = s[i]!
+    const track: JointTrack = { joint: i }
+    if (varies(t[i]!, joint.rest.translation)) track.translations = { frames, values: t[i]! }
+    if (varies(r[i]!, joint.rest.rotation, true)) track.rotations = { frames, values: r[i]! }
+    if (varies(s[i]!, joint.rest.scale)) track.scales = { frames, values: s[i]! }
     if (track.translations || track.rotations || track.scales) tracks.push(track)
   })
 

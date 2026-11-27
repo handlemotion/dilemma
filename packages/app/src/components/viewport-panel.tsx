@@ -1,5 +1,6 @@
 import { Viewport } from '@dilemma/view'
 import { useEffect, useRef } from 'react'
+import { beginRotation, finishRotation, previewRotation, selectJoints } from '../animation.ts'
 import { editor } from '../editor.ts'
 import { navigationOf, usePreferences } from '../preferences.ts'
 import { useUi } from '../ui-store.ts'
@@ -26,11 +27,11 @@ export function ViewportPanel() {
           if (!additive) editor.select([])
           return
         }
-        if (!additive) return editor.select([joint])
+        if (!additive) return selectJoints([joint])
         const has = joints.some(
           (j) => j.characterId === joint.characterId && j.joint === joint.joint,
         )
-        editor.select(
+        selectJoints(
           has
             ? joints.filter(
                 (j) => !(j.characterId === joint.characterId && j.joint === joint.joint),
@@ -38,6 +39,9 @@ export function ViewportPanel() {
             : [...joints, joint],
         )
       },
+      rotationStart: beginRotation,
+      rotationChange: previewRotation,
+      rotationEnd: finishRotation,
     })
     current = viewport
     // lets a script drive the viewport when the app is checked without a person
@@ -45,10 +49,27 @@ export function ViewportPanel() {
     viewport.setNavigation(navigationOf(usePreferences.getState()))
     const offPreferences = usePreferences.subscribe((p) => viewport.setNavigation(navigationOf(p)))
     viewport.setAssets(useUi.getState().assets)
-    viewport.setState(editor.getState())
-    const offEditor = editor.subscribe((state) => viewport.setState(state))
+    let previous = editor.getState()
+    viewport.setState(previous)
+    const offEditor = editor.subscribe((state) => {
+      if (
+        useUi.getState().rotationDraft &&
+        (state.doc !== previous.doc ||
+          state.playhead !== previous.playhead ||
+          state.selection !== previous.selection)
+      )
+        finishRotation(false)
+      previous = state
+      viewport.setState(state)
+    })
     const offUi = useUi.subscribe((ui, prev) => {
       if (ui.assets !== prev.assets) viewport.setAssets(ui.assets)
+      if (ui.rotationDraft !== prev.rotationDraft) {
+        const draft = ui.rotationDraft
+        viewport.setRotationPreview(
+          draft?.rotation ? { joint: draft.joint, rotation: draft.rotation } : null,
+        )
+      }
     })
     const stats = setInterval(() => useUi.getState().setFps(viewport.stats.fps), 500)
     return () => {

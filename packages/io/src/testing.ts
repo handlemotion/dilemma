@@ -1,6 +1,7 @@
 import { compileClip, compileSkeleton, createPose, solvePose, WORLD_STRIDE } from '@dilemma/solve'
 import {
   AnimationMixer,
+  LoopOnce,
   Matrix4,
   Vector3,
   type AnimationClip,
@@ -50,7 +51,10 @@ export function compareWithThree(
 
     const mixer = new AnimationMixer(reference.root)
     if (clip && clipIndex !== null) {
-      mixer.clipAction(reference.animations[clipIndex]!).play()
+      const action = mixer.clipAction(reference.animations[clipIndex]!)
+      action.setLoop(LoopOnce, 1)
+      action.clampWhenFinished = true
+      action.play()
       mixer.setTime(frame / clip.fps)
     }
     reference.root.updateMatrixWorld(true)

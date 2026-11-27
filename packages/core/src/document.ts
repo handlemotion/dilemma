@@ -4,7 +4,7 @@
  * rotations as unit quaternions [x, y, z, w]. Key times are integer frames.
  */
 
-export const DOCUMENT_VERSION = 1
+export const DOCUMENT_VERSION = 2
 
 export type Vec3 = [number, number, number]
 export type Quat = [number, number, number, number]
@@ -35,16 +35,18 @@ export interface Character {
   skeleton: Skeleton
 }
 
-/**
- * Keys for one joint. `frames` are strictly increasing integers. Each channel,
- * when present, holds one value per frame, flattened (3 or 4 numbers per key).
- */
+/** Integer frames in ascending order, with one flattened value per frame. */
+export interface KeyChannel {
+  frames: number[]
+  values: number[]
+}
+
+/** Each channel has its own key times so edits to one preserve the others. */
 export interface JointTrack {
   joint: number
-  frames: number[]
-  translations?: number[]
-  rotations?: number[]
-  scales?: number[]
+  translations?: KeyChannel
+  rotations?: KeyChannel
+  scales?: KeyChannel
 }
 
 export interface Clip {

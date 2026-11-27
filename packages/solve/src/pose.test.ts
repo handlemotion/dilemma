@@ -41,7 +41,7 @@ describe('solvePose', () => {
       fps: 30,
       start: 0,
       end: 10,
-      tracks: [{ joint: 1, frames: [0, 10], rotations: [0, 0, 0, 1, 0, 0, s, s] }],
+      tracks: [{ joint: 1, rotations: { frames: [0, 10], values: [0, 0, 0, 1, 0, 0, s, s] } }],
     }
     const skeleton = compileSkeleton(chain(3))
     const compiled = compileClip(clip, 3)
@@ -109,13 +109,18 @@ function randomClip(joints: number, seed: number): Clip {
     end: 120,
     tracks: Array.from({ length: joints }, (_, joint) => ({
       joint,
-      frames,
-      rotations: frames.flatMap(() => {
-        const q = [random(), random(), random(), random()]
-        const len = Math.hypot(...q)
-        return q.map((v) => v / len)
-      }),
-      translations: frames.flatMap(() => [random() * 0.01, 0.1, random() * 0.01]),
+      rotations: {
+        frames,
+        values: frames.flatMap(() => {
+          const q = [random(), random(), random(), random()]
+          const len = Math.hypot(...q)
+          return q.map((v) => v / len)
+        }),
+      },
+      translations: {
+        frames,
+        values: frames.flatMap(() => [random() * 0.01, 0.1, random() * 0.01]),
+      },
     })),
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addCharacter, removeCharacter } from './commands.ts'
+import { addCharacter, deleteRotationKeys, removeCharacter, setRotationKey } from './commands.ts'
 import { emptyDocument, type Character, type Clip } from './document.ts'
 import { Editor } from './editor.ts'
 import { DocumentVersionError, migrate } from './migrate.ts'
@@ -100,5 +100,32 @@ describe('migrate', () => {
     editor.run(addCharacter(character('a'), [clip('c', 'a')]))
     const doc = editor.getState().doc
     expect(migrate(JSON.parse(JSON.stringify(doc)))).toEqual(doc)
+  })
+
+  it('loads shared version-one key times and preserves translation through rotation edits and undo', () => {
+    const frames = [0, 10]
+    const values = [0, 0, 0, 10, 0, 0]
+    const raw = {
+      version: 1,
+      characters: [character('a')],
+      clips: [
+        {
+          ...clip('walk', 'a'),
+          tracks: [{ joint: 0, frames, translations: values, rotations: [0, 0, 0, 1, 0, 0, 1, 0] }],
+        },
+      ],
+    }
+    const doc = migrate(JSON.parse(JSON.stringify(raw)))
+    expect(doc.clips[0]?.tracks[0]?.rotations?.frames).toEqual(frames)
+    const editor = new Editor(doc)
+    editor.run(setRotationKey('walk', 0, 5, [0, Math.SQRT1_2, 0, Math.SQRT1_2]))
+    expect(editor.getState().doc.clips[0]?.tracks[0]?.rotations?.frames).toEqual([0, 5, 10])
+    editor.run(deleteRotationKeys('walk', [0], 0, 10))
+    expect(editor.getState().doc.clips[0]?.tracks).toEqual([
+      { joint: 0, translations: { frames, values } },
+    ])
+    expect(editor.undo()).toBe(true)
+    expect(editor.undo()).toBe(true)
+    expect(editor.getState().doc).toEqual(doc)
   })
 })

@@ -3,7 +3,7 @@ import {
   WORLD_STRIDE,
   type CompiledClip,
   type CompiledSkeleton,
-  type CompiledTrack,
+  type CompiledChannel,
   type Pose,
 } from './skeleton.ts'
 
@@ -24,11 +24,21 @@ export function solvePose(
 }
 
 export function sampleClip(clip: CompiledClip, frame: number, local: Float64Array): void {
-  for (const track of clip.tracks) sampleTrack(track, frame, local)
+  for (const track of clip.tracks) {
+    const o = track.joint * LOCAL_STRIDE
+    if (track.translations) sampleChannel(track.translations, frame, local, o, lerp3)
+    if (track.rotations) sampleChannel(track.rotations, frame, local, o + 3, slerp)
+    if (track.scales) sampleChannel(track.scales, frame, local, o + 7, lerp3)
+  }
 }
 
-function sampleTrack(track: CompiledTrack, frame: number, local: Float64Array): void {
-  const frames = track.frames
+function sampleChannel(
+  { frames, values }: CompiledChannel,
+  frame: number,
+  local: Float64Array,
+  offset: number,
+  interpolate: typeof lerp3,
+): void {
   const n = frames.length
   if (n === 0) return
   // Find the key span [a, b] holding the frame, clamped at both ends.
@@ -51,10 +61,7 @@ function sampleTrack(track: CompiledTrack, frame: number, local: Float64Array): 
     b = hi
     t = (frame - frames[a]!) / (frames[b]! - frames[a]!)
   }
-  const o = track.joint * LOCAL_STRIDE
-  if (track.translations) lerp3(track.translations, a, b, t, local, o)
-  if (track.rotations) slerp(track.rotations, a, b, t, local, o + 3)
-  if (track.scales) lerp3(track.scales, a, b, t, local, o + 7)
+  interpolate(values, a, b, t, local, offset)
 }
 
 function lerp3(v: Float64Array, a: number, b: number, t: number, out: Float64Array, o: number) {

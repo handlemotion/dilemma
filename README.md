@@ -10,7 +10,7 @@ Contacts live on the timeline. "Hand grips the cup from frame 20 to 48" is a cli
 
 ## Where it is now
 
-Right now it loads a skinned glTF, shows the mesh and skeleton, plays the clip that came in the file, and lets you pick joints in the viewport or the skeleton panel. Posing and keying on plain FK comes next, with save, undo and glTF export, then controls and full-body IK. Contacts, motion paths and the Maya and Blender bridges come after that, and [docs/roadmap.md](docs/roadmap.md) has the rest of the plan.
+You can import a skinned glTF, play its clips, and pose and key joints in FK. The app saves editable projects and exports a baked GLB of the active clip. Humanoid controls and full-body IK come next, followed by contacts, motion paths, and the Maya and Blender bridges. [docs/roadmap.md](docs/roadmap.md) has the rest of the plan.
 
 ## Running it
 
@@ -22,6 +22,8 @@ pnpm dev
 ```
 
 Press ⌘O or drop a `.glb` or `.gltf` on the window. The camera moves the way Maya's does, Alt with the left, middle or right button turns, pans or zooms. On a trackpad a two-finger swipe turns and a pinch zooms. F frames the selection, Space plays, and the arrow keys step one frame. The Navigation menu in the toolbar switches the mouse buttons to Blender's layout or a trackpad-first one.
+
+Select a joint and drag a rotation ring to write a key at the playhead. Use **New clip** to start a fresh animation, **Set key** or S to key the current rotation, and **Delete keys** to remove rotation keys at the playhead or in a selected range. Use **File → Save Project** (⌘S) and **File → Open Project** (⇧⌘O) for `.dilemma` files. Project files reference the original character assets by path, so keep those files and any sibling textures or buffers available. **Export GLB** writes a standalone copy of the character with the active clip baked into it.
 
 To put it in Applications, run `pnpm install-app`. It builds the app, signs it ad-hoc since there's no developer certificate yet, and replaces `/Applications/Dilemma.app`. There are no automatic updates in v0, so to update you pull and run it again.
 

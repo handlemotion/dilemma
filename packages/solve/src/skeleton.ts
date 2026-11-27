@@ -1,4 +1,4 @@
-import type { Clip, Skeleton } from '@dilemma/core'
+import type { Clip, KeyChannel, Skeleton } from '@dilemma/core'
 
 /** Floats per joint in a local pose: translation (3), rotation quaternion xyzw (4), scale (3). */
 export const LOCAL_STRIDE = 10
@@ -20,10 +20,14 @@ export interface Pose {
 
 export interface CompiledTrack {
   joint: number
+  translations: CompiledChannel | null
+  rotations: CompiledChannel | null
+  scales: CompiledChannel | null
+}
+
+export interface CompiledChannel {
   frames: Int32Array
-  translations: Float64Array | null
-  rotations: Float64Array | null
-  scales: Float64Array | null
+  values: Float64Array
 }
 
 export interface CompiledClip {
@@ -61,25 +65,24 @@ export function compileClip(clip: Clip, jointCount: number): CompiledClip {
     if (track.joint < 0 || track.joint >= jointCount) {
       throw new Error(`Clip ${clip.name} has a track for missing joint ${track.joint}.`)
     }
-    for (let k = 0; k < track.frames.length; k++) {
-      const f = track.frames[k]!
-      if (!Number.isInteger(f)) throw new Error(`Key frame ${f} is not an integer.`)
-      if (k > 0 && f <= track.frames[k - 1]!) throw new Error('Key frames must increase.')
-    }
-    const channel = (values: number[] | undefined, width: number) => {
-      if (!values) return null
-      if (values.length !== track.frames.length * width) {
-        throw new Error(`Track for joint ${track.joint} has the wrong number of values.`)
-      }
-      return Float64Array.from(values)
-    }
     return {
       joint: track.joint,
-      frames: Int32Array.from(track.frames),
-      translations: channel(track.translations, 3),
-      rotations: channel(track.rotations, 4),
-      scales: channel(track.scales, 3),
+      translations: compileChannel(track.translations, 3),
+      rotations: compileChannel(track.rotations, 4),
+      scales: compileChannel(track.scales, 3),
     }
   })
   return { start: clip.start, end: clip.end, tracks }
+}
+
+function compileChannel(channel: KeyChannel | undefined, width: number): CompiledChannel | null {
+  if (!channel) return null
+  const { frames, values } = channel
+  for (let k = 0; k < frames.length; k++) {
+    const frame = frames[k]!
+    if (!Number.isInteger(frame)) throw new Error(`Key frame ${frame} is not an integer.`)
+    if (k > 0 && frame <= frames[k - 1]!) throw new Error('Key frames must increase.')
+  }
+  if (values.length !== frames.length * width) throw new Error('Wrong number of key values.')
+  return { frames: Int32Array.from(frames), values: Float64Array.from(values) }
 }

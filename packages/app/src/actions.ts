@@ -1,13 +1,33 @@
-import { addCharacter } from '@dilemma/core'
-import { loadGltf } from '@dilemma/io'
+import { addCharacter, type Skeleton } from '@dilemma/core'
+import { exportGlb, loadGltf, type CharacterAssets } from '@dilemma/io'
+import { compileClip, compileSkeleton, createPose, solvePose } from '@dilemma/solve'
+import { activeClip } from './animation.ts'
 import { bridge } from './bridge.ts'
 import { editor } from './editor.ts'
 import { useUi } from './ui-store.ts'
 import type { OpenedFile } from '../electron/ipc.ts'
 
-export async function importCharacter(file?: File | OpenedFile): Promise<void> {
-  const ui = useUi.getState()
-  try {
+let savedProject: string | null = null
+let fileQueue = Promise.resolve()
+
+function fileOperation(activity: string, run: () => Promise<void>): Promise<void> {
+  fileQueue = fileQueue.then(async () => {
+    const ui = useUi.getState()
+    ui.setLoading(activity)
+    ui.setError(null)
+    try {
+      await run()
+    } catch (error) {
+      ui.setError(error instanceof Error ? error.message : String(error))
+    } finally {
+      ui.setLoading(null)
+    }
+  })
+  return fileQueue
+}
+
+export function importCharacter(file?: File | OpenedFile): Promise<void> {
+  return fileOperation('Importing character…', async () => {
     const opened =
       file && !(file instanceof File)
         ? file
@@ -17,16 +37,101 @@ export async function importCharacter(file?: File | OpenedFile): Promise<void> {
             : { url: URL.createObjectURL(file), name: file.name, path: file.name }
           : await bridge?.openCharacter()
     if (!opened) return
-    ui.setError(null)
-    ui.setLoading(opened.name)
     const imported = await loadGltf(opened.url, { name: opened.name.replace(/\.(glb|gltf)$/i, '') })
     imported.character.source.uri = opened.path
     // Assets first, so the viewport has the mesh when the document arrives.
-    ui.addAssets(imported.character.id, imported.assets)
+    useUi.getState().addAssets(imported.character.id, imported.assets)
     editor.run(addCharacter(imported.character, imported.clips))
-  } catch (error) {
-    ui.setError(error instanceof Error ? error.message : String(error))
-  } finally {
-    ui.setLoading(null)
-  }
+  })
+}
+
+export function saveProject(saveAs = false): Promise<void> {
+  return fileOperation('Saving project…', async () => {
+    const { doc } = editor.getState()
+    const ui = useUi.getState()
+    const file = await bridge?.saveProject(doc, ui.projectPath, saveAs)
+    if (!file) return
+    savedProject = JSON.stringify(doc)
+    ui.setProjectPath(file)
+  })
+}
+
+export function openProject(): Promise<void> {
+  return fileOperation('Opening project…', async () => {
+    const opened = await bridge?.openProject()
+    if (!opened) return
+    const { doc, sources } = opened
+    const assets = new Map<string, CharacterAssets>()
+    const characters = await Promise.all(
+      doc.characters.map(async (character, i) => {
+        const source = sources[i]!
+        const imported = await loadGltf(source.url, {
+          id: character.id,
+          name: character.name,
+          skipAnimations: true,
+        })
+        if (!sameSkeleton(imported.character.skeleton, character.skeleton)) {
+          throw new Error(`The source skeleton has changed for ${character.name}: ${source.path}`)
+        }
+        assets.set(character.id, imported.assets)
+        return { ...character, source: { uri: source.path } }
+      }),
+    )
+    const current = editor.getState().doc
+    if (
+      current.characters.length &&
+      JSON.stringify(current) !== savedProject &&
+      !window.confirm('Open this project and discard unsaved changes?')
+    )
+      return
+    const restored = { ...doc, characters }
+    const ui = useUi.getState()
+    ui.setPlaying(false)
+    ui.setRotationDraft(null)
+    ui.setTimelineRange(null)
+    ui.setWorkArea(null)
+    ui.setPreviewFrame(0)
+    ui.setAssets(assets)
+    editor.load(restored)
+    savedProject = JSON.stringify(restored)
+    ui.setProjectPath(opened.path)
+  })
+}
+
+function sameSkeleton(source: Skeleton, saved: Skeleton): boolean {
+  return (
+    source.joints.length === saved.joints.length &&
+    source.joints.every((joint, index) => {
+      const previous = saved.joints[index]!
+      const { translation, rotation, scale } = joint.rest
+      const channels = [previous.rest.translation, previous.rest.rotation, previous.rest.scale]
+      return (
+        joint.name === previous.name &&
+        joint.parent === previous.parent &&
+        [translation, rotation, scale].every((values, channel) =>
+          values.every((value, i) => Math.abs(value - channels[channel]![i]!) < 1e-6),
+        )
+      )
+    })
+  )
+}
+
+export function exportAnimation(): Promise<void> {
+  return fileOperation('Exporting GLB…', async () => {
+    const clip = activeClip()
+    if (!clip) return
+    const character = editor
+      .getState()
+      .doc.characters.find((entry) => entry.id === clip.characterId)
+    const assets = useUi.getState().assets.get(clip.characterId)
+    if (!character || !assets) throw new Error('The clip has no loaded character.')
+    const skeleton = compileSkeleton(character.skeleton)
+    const compiled = compileClip(clip, skeleton.count)
+    const pose = createPose(skeleton)
+    const bytes = await exportGlb(assets, clip, (frame) => {
+      solvePose(skeleton, compiled, frame, pose)
+      return pose.local
+    })
+    await bridge?.exportGlb(bytes, clip.name)
+  })
 }

@@ -1,6 +1,8 @@
 import { Tabs } from '@base-ui/react/tabs'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { importCharacter } from './actions.ts'
+import type { MenuAction } from '../electron/ipc.ts'
+import { exportAnimation, importCharacter, openProject, saveProject } from './actions.ts'
+import { deleteKeys, keySelection } from './animation.ts'
 import { bridge } from './bridge.ts'
 import { Outliner } from './components/outliner.tsx'
 import { DEFAULT_TIMELINE_HEIGHT, Timeline } from './components/timeline.tsx'
@@ -17,6 +19,8 @@ export function App() {
   const sizes = useUi((s) => s.panelSizes)
   const loading = useUi((s) => s.loading)
   const error = useUi((s) => s.error)
+  const projectPath = useUi((s) => s.projectPath)
+  const clipId = useEditorState((s) => s.playhead.clipId)
   const fileInput = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
 
@@ -58,6 +62,7 @@ export function App() {
         <button
           type="button"
           className="shell-primary"
+          disabled={Boolean(loading)}
           onClick={() => {
             if (bridge) void importCharacter()
             else fileInput.current?.click()
@@ -77,7 +82,22 @@ export function App() {
           title="Redo (⇧⌘Z)"
           icon={<path d="m10.5 3 3 3-3 3M13.5 6h-7a4 4 0 0 0 0 8H9" />}
         />
-        <span className="mx-auto font-medium text-muted">Dilemma</span>
+        <span className="mx-auto truncate font-medium text-muted" title={projectPath ?? undefined}>
+          {projectPath
+            ?.split(/[\\/]/)
+            .pop()
+            ?.replace(/\.dilemma$/i, '') ?? 'Dilemma'}
+        </span>
+        {bridge && (
+          <button
+            type="button"
+            className="shell-action"
+            disabled={!clipId || Boolean(loading)}
+            onClick={() => void exportAnimation()}
+          >
+            Export GLB
+          </button>
+        )}
       </header>
 
       <main className="relative min-h-0 min-w-0 overflow-hidden bg-timeline">
@@ -91,12 +111,15 @@ export function App() {
         {loading && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <p role="status" className="rounded-md bg-panel p-3 text-muted">
-              Loading {loading}…
+              {loading}
             </p>
           </div>
         )}
         {error && (
-          <div className="absolute top-2 left-2 max-w-md rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-900">
+          <div
+            role="alert"
+            className="absolute top-2 left-2 max-w-md rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-900"
+          >
             {error}
             <button
               type="button"
@@ -303,8 +326,12 @@ function useShortcuts(): void {
         frame: Math.min(clip.end, Math.max(clip.start, playhead.frame + delta)),
       })
     }
-    const run = (action: 'open' | 'undo' | 'redo' | 'frame') => {
+    const run = (action: MenuAction) => {
       if (action === 'open') void importCharacter()
+      else if (action === 'openProject') void openProject()
+      else if (action === 'saveProject' || action === 'saveProjectAs') {
+        void saveProject(action === 'saveProjectAs')
+      } else if (action === 'exportGlb') void exportAnimation()
       else if (action === 'undo') editor.undo()
       else if (action === 'redo') editor.redo()
       else activeViewport()?.frameSelection()
@@ -328,7 +355,10 @@ function useShortcuts(): void {
       const mod = e.metaKey || e.ctrlKey
       if (e.key === 'f' && !mod) run('frame')
       else if (e.key === 'Escape') editor.select([])
-      else if (
+      else if (e.key.toLowerCase() === 's' && !mod && !e.altKey && !e.repeat) keySelection()
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && !mod && deleteKeys()) {
+        e.preventDefault()
+      } else if (
         (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
         !(e.target instanceof Element && e.target.closest('[role="tablist"]'))
       )

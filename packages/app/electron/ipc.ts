@@ -1,15 +1,27 @@
 /** Shared between main, preload and renderer. Types and constants only. */
+import type { DilemmaDocument } from '@dilemma/core'
 
 export const ASSET_SCHEME = 'dilemma-asset'
 
 export const Channels = {
   openCharacter: 'dilemma:open-character',
   allowFile: 'dilemma:allow-file',
+  openProject: 'dilemma:open-project',
+  saveProject: 'dilemma:save-project',
+  exportGlb: 'dilemma:export-glb',
   menu: 'dilemma:menu',
   openFile: 'dilemma:open-file',
 } as const
 
-export type MenuAction = 'open' | 'undo' | 'redo' | 'frame'
+export type MenuAction =
+  | 'open'
+  | 'openProject'
+  | 'saveProject'
+  | 'saveProjectAs'
+  | 'exportGlb'
+  | 'undo'
+  | 'redo'
+  | 'frame'
 
 export interface OpenedFile {
   path: string
@@ -18,11 +30,24 @@ export interface OpenedFile {
   name: string
 }
 
+export interface OpenedProject {
+  path: string
+  doc: DilemmaDocument
+  sources: OpenedFile[]
+}
+
 export interface DilemmaBridge {
   platform: string
   openCharacter(): Promise<OpenedFile | null>
   /** For drag and drop: turns a dropped File into a loadable URL. */
   openDroppedFile(file: File): Promise<OpenedFile>
+  openProject(): Promise<OpenedProject | null>
+  saveProject(
+    document: DilemmaDocument,
+    path: string | null,
+    saveAs: boolean,
+  ): Promise<string | null>
+  exportGlb(bytes: ArrayBuffer, name: string): Promise<string | null>
   onMenu(listener: (action: MenuAction) => void): () => void
   /** Files the main process asks the window to open, such as DILEMMA_OPEN at launch. */
   onOpenFile(listener: (file: OpenedFile) => void): () => void

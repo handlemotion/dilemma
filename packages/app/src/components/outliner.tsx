@@ -1,5 +1,6 @@
 import type { Character, JointRef } from '@dilemma/core'
-import { editor, useEditorState } from '../editor.ts'
+import { selectJoints } from '../animation.ts'
+import { useEditorState } from '../editor.ts'
 
 /** Characters and their joints. Clicking a joint selects it, Shift adds to the selection. */
 export function Outliner() {
@@ -35,11 +36,11 @@ function CharacterTree({ character, selected }: { character: Character; selected
               type="button"
               onClick={(e) => {
                 const ref = { characterId: character.id, joint: i }
-                if (!e.shiftKey) return editor.select([ref])
+                if (!e.shiftKey) return selectJoints([ref])
                 const rest = selected.filter(
                   (s) => !(s.characterId === character.id && s.joint === i),
                 )
-                editor.select(rest.length === selected.length ? [...selected, ref] : rest)
+                selectJoints(rest.length === selected.length ? [...selected, ref] : rest)
               }}
               className={`block w-full truncate rounded-md py-0.5 pr-3 text-left ${
                 isSelected(i)

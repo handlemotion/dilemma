@@ -1,8 +1,10 @@
-import type { Character, Clip, EditorState, JointRef } from '@dilemma/core'
+import type { Character, Clip, EditorState, JointRef, Quat } from '@dilemma/core'
 import {
   compileClip,
   compileSkeleton,
+  computeWorld,
   createPose,
+  LOCAL_STRIDE,
   solvePose,
   WORLD_STRIDE,
   type CompiledClip,
@@ -26,6 +28,7 @@ import {
 import { JointOverlay } from './joints.ts'
 import { MeshPicker } from './picking.ts'
 import { framingSphere, Rig, type NavigationPreferences } from './rig.ts'
+import { RotationGizmo, type RotationEvents } from './rotation-gizmo.ts'
 
 /** Render resources for one character: its scene and one object per joint, in joint order. */
 export interface ViewCharacter {
@@ -33,9 +36,14 @@ export interface ViewCharacter {
   bones: Object3D[]
 }
 
-export interface ViewportEvents {
+export interface ViewportEvents extends RotationEvents {
   /** A click in the viewport. `null` means empty space. The app turns this into a selection change. */
   pick(joint: JointRef | null, additive: boolean): void
+}
+
+export interface RotationPreview {
+  joint: JointRef
+  rotation: Quat
 }
 
 interface Entry {
@@ -59,6 +67,8 @@ export class Viewport {
   private scene = new Scene()
   private camera = new PerspectiveCamera(35, 1, 0.01, 1000)
   private rig: Rig
+  private gizmo: RotationGizmo
+  private rotationPreview: RotationPreview | null = null
   private last = performance.now()
   private entries = new Map<string, Entry>()
   private assets: ReadonlyMap<string, ViewCharacter> = new Map()
@@ -88,6 +98,7 @@ export class Viewport {
     this.scene.add(grid)
 
     this.rig = new Rig(this.camera, canvas, () => this.selectionCenter())
+    this.gizmo = new RotationGizmo(this.scene, this.camera, canvas, events)
     canvas.addEventListener('pointerdown', this.onPointerDown)
     canvas.addEventListener('pointerup', this.onPointerUp)
     this.resize = new ResizeObserver(() => this.onResize())
@@ -100,6 +111,7 @@ export class Viewport {
     cancelAnimationFrame(this.raf)
     this.resize.disconnect()
     this.rig.dispose()
+    this.gizmo.dispose()
     this.canvas.removeEventListener('pointerdown', this.onPointerDown)
     this.canvas.removeEventListener('pointerup', this.onPointerUp)
     for (const entry of this.entries.values()) this.remove(entry)
@@ -120,6 +132,10 @@ export class Viewport {
     this.state = state
     if (!previous || previous.doc !== state.doc) this.sync(state)
     if (!previous || previous.selection !== state.selection) this.paintSelection(state)
+  }
+
+  setRotationPreview(preview: RotationPreview | null): void {
+    this.rotationPreview = preview
   }
 
   /** Frame the selected joints, or every character when nothing is selected. */
@@ -208,6 +224,11 @@ export class Viewport {
       const compiled =
         clip && clip.characterId === entry.character.id ? this.compiled(clip, entry) : null
       solvePose(entry.skeleton, compiled, playhead?.frame ?? 0, entry.pose)
+      const preview = this.rotationPreview
+      if (preview?.joint.characterId === entry.character.id) {
+        entry.pose.local.set(preview.rotation, preview.joint.joint * LOCAL_STRIDE + 3)
+        computeWorld(entry.skeleton, entry.pose)
+      }
       const w = entry.pose.world
       entry.assets.bones.forEach((bone, i) => {
         bone.matrixWorld.fromArray(w, i * WORLD_STRIDE)
@@ -215,6 +236,9 @@ export class Viewport {
       })
       entry.overlay.update(entry.pose)
     }
+    const selected = this.state?.selection.joints
+    const joint = selected?.length === 1 ? selected[0]! : null
+    this.gizmo.update(joint, joint ? this.entries.get(joint.characterId)?.pose : undefined)
   }
 
   private compiled(clip: Clip, entry: Entry): CompiledClip {
@@ -236,7 +260,10 @@ export class Viewport {
   }
 
   private onPointerDown = (event: PointerEvent) => {
-    this.down = event.button === 0 && !event.altKey ? { x: event.clientX, y: event.clientY } : null
+    this.down =
+      event.button === 0 && !event.altKey && !this.gizmo.dragging
+        ? { x: event.clientX, y: event.clientY }
+        : null
   }
 
   private onPointerUp = (event: PointerEvent) => {

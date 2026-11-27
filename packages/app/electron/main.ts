@@ -1,13 +1,24 @@
+import { migrate } from '@dilemma/core'
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, shell } from 'electron'
-import { stat } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { ASSET_SCHEME, Channels, type MenuAction, type OpenedFile } from './ipc.ts'
+import { writeWholeSoon } from './atomic.ts'
+import {
+  ASSET_SCHEME,
+  Channels,
+  type MenuAction,
+  type OpenedFile,
+  type OpenedProject,
+} from './ipc.ts'
 
 const CHARACTER_EXTENSIONS = ['glb', 'gltf']
+const PROJECT_FILTER = { name: 'Dilemma project', extensions: ['dilemma'] }
 
 /** Folders the user opened a file from. The asset protocol serves nothing outside them. */
-const allowedRoots = new Set<string>()
+const allowedRoots = new Map<string, string>()
+const projectFiles = new Set<string>()
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -16,26 +27,49 @@ protocol.registerSchemesAsPrivileged([
   },
 ])
 
-function assetUrl(file: string): string {
-  return `${ASSET_SCHEME}://file/${encodeURIComponent(file)}`
-}
-
 async function allow(file: string): Promise<OpenedFile> {
   const resolved = path.resolve(file)
   const ext = path.extname(resolved).slice(1).toLowerCase()
   if (!CHARACTER_EXTENSIONS.includes(ext))
     throw new Error(`Dilemma opens .glb and .gltf files, not .${ext}.`)
   if (!(await stat(resolved)).isFile()) throw new Error(`${resolved} is not a file.`)
-  allowedRoots.add(path.dirname(resolved))
-  return { path: resolved, url: assetUrl(resolved), name: path.basename(resolved) }
+  const actual = await realpath(resolved)
+  const root = path.dirname(actual)
+  const token = [...allowedRoots].find(([, dir]) => dir === root)?.[0] ?? randomUUID()
+  allowedRoots.set(token, root)
+  return {
+    path: resolved,
+    url: `${ASSET_SCHEME}://${token}/${encodeURIComponent(path.basename(actual))}`,
+    name: path.basename(resolved),
+  }
 }
 
-function isAllowed(file: string): boolean {
-  for (const root of allowedRoots) {
-    const relative = path.relative(root, file)
-    if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) return true
-  }
-  return false
+function inside(root: string, file: string): boolean {
+  const relative = path.relative(root, file)
+  return (
+    Boolean(relative) &&
+    relative !== '..' &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  )
+}
+
+async function openProject(file: string): Promise<OpenedProject> {
+  const doc = migrate(JSON.parse(await readFile(file, 'utf8')))
+  const sources = await Promise.all(
+    doc.characters.map(async (character) => {
+      const source = path.resolve(path.dirname(file), character.source.uri)
+      try {
+        return await allow(source)
+      } catch (error) {
+        throw new Error(`Could not open the source for ${character.name}: ${source}`, {
+          cause: error,
+        })
+      }
+    }),
+  )
+  projectFiles.add(file)
+  return { path: file, doc, sources }
 }
 
 /** The window once its page has loaded, and the files asked for before then. */
@@ -105,6 +139,18 @@ function buildMenu(): void {
         label: 'File',
         submenu: [
           { label: 'Import Character…', accelerator: 'CmdOrCtrl+O', click: () => send('open') },
+          {
+            label: 'Open Project…',
+            accelerator: 'Shift+CmdOrCtrl+O',
+            click: () => send('openProject'),
+          },
+          { label: 'Save Project', accelerator: 'CmdOrCtrl+S', click: () => send('saveProject') },
+          {
+            label: 'Save Project As…',
+            accelerator: 'Shift+CmdOrCtrl+S',
+            click: () => send('saveProjectAs'),
+          },
+          { label: 'Export GLB…', click: () => send('exportGlb') },
           { type: 'separator' },
           isMac ? { role: 'close' } : { role: 'quit' },
         ],
@@ -166,9 +212,22 @@ waiting.push(...filesIn(process.argv.slice(app.isPackaged ? 1 : 2)))
 
 void app.whenReady().then(() => {
   protocol.handle(ASSET_SCHEME, async (request) => {
-    const file = path.resolve(decodeURIComponent(new URL(request.url).pathname.slice(1)))
-    if (!isAllowed(file)) return new Response('Not found', { status: 404 })
-    return net.fetch(pathToFileURL(file).toString())
+    try {
+      const url = new URL(request.url)
+      const root = allowedRoots.get(url.hostname)
+      if (root && request.method === 'GET') {
+        const file = path.resolve(root, decodeURIComponent(url.pathname.slice(1)))
+        if (inside(root, file)) {
+          const actual = await realpath(file)
+          if (inside(root, actual) && (await stat(actual)).isFile()) {
+            return await net.fetch(pathToFileURL(actual).toString())
+          }
+        }
+      }
+    } catch {
+      return new Response('Not found', { status: 404 })
+    }
+    return new Response('Not found', { status: 404 })
   })
 
   ipcMain.handle(Channels.openCharacter, async (): Promise<OpenedFile | null> => {
@@ -183,6 +242,51 @@ void app.whenReady().then(() => {
   ipcMain.handle(Channels.allowFile, (_event, file: unknown) => {
     if (typeof file !== 'string') throw new Error('Expected a file path.')
     return allow(file)
+  })
+  ipcMain.handle(Channels.openProject, async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Open Project',
+      properties: ['openFile'],
+      filters: [PROJECT_FILTER],
+    })
+    const file = result.filePaths[0]
+    return result.canceled || !file ? null : openProject(path.resolve(file))
+  })
+  ipcMain.handle(
+    Channels.saveProject,
+    async (_event, raw: unknown, current: unknown, saveAs: unknown) => {
+      const doc = migrate(raw)
+      let file = typeof current === 'string' && projectFiles.has(current) ? current : null
+      if (!file || saveAs === true) {
+        const result = await dialog.showSaveDialog({
+          title: 'Save Project',
+          defaultPath: file ?? 'Untitled.dilemma',
+          filters: [PROJECT_FILTER],
+        })
+        if (result.canceled || !result.filePath) return null
+        file = path.resolve(result.filePath)
+      }
+      const characters = doc.characters.map((character) => ({
+        ...character,
+        source: { uri: path.relative(path.dirname(file), character.source.uri) },
+      }))
+      await writeWholeSoon(file, `${JSON.stringify({ ...doc, characters }, null, 2)}\n`)
+      projectFiles.add(file)
+      return file
+    },
+  )
+  ipcMain.handle(Channels.exportGlb, async (_event, bytes: unknown, name: unknown) => {
+    if (!(bytes instanceof ArrayBuffer) || typeof name !== 'string') {
+      throw new Error('Expected a binary GLB and a clip name.')
+    }
+    const result = await dialog.showSaveDialog({
+      title: 'Export GLB',
+      defaultPath: `${name.replace(/[\\/:]/g, '_') || 'Animation'}.glb`,
+      filters: [{ name: 'Binary glTF', extensions: ['glb'] }],
+    })
+    if (result.canceled || !result.filePath) return null
+    await writeWholeSoon(result.filePath, new Uint8Array(bytes))
+    return result.filePath
   })
 
   buildMenu()

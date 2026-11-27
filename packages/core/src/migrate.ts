@@ -5,7 +5,29 @@ import { DOCUMENT_VERSION, type DilemmaDocument } from './document.ts'
  * version n + 1. Add an entry here every time DOCUMENT_VERSION goes up, and a
  * test that loads a stored document of the old version.
  */
-const migrations: Record<number, (doc: Record<string, unknown>) => Record<string, unknown>> = {}
+const channels = ['translations', 'rotations', 'scales'] as const
+
+const migrations: Record<number, (doc: Record<string, unknown>) => Record<string, unknown>> = {
+  1: (doc) => ({
+    ...doc,
+    clips: array(doc['clips']).map((rawClip) => {
+      const clip = object(rawClip)
+      return {
+        ...clip,
+        tracks: array(clip['tracks']).map((rawTrack) => {
+          const track = object(rawTrack)
+          const next: Record<string, unknown> = { joint: track['joint'] }
+          for (const channel of channels) {
+            if (track[channel] !== undefined) {
+              next[channel] = { frames: track['frames'], values: track[channel] }
+            }
+          }
+          return next
+        }),
+      }
+    }),
+  }),
+}
 
 export class DocumentVersionError extends Error {}
 
@@ -26,9 +48,101 @@ export function migrate(raw: unknown): DilemmaDocument {
   while (version < DOCUMENT_VERSION) {
     const step = migrations[version]
     if (!step) throw new DocumentVersionError(`No migration from version ${version}.`)
-    doc = step(doc)
     version += 1
-    doc['version'] = version
+    doc = { ...step(doc), version }
   }
+  validateDocument(doc)
   return doc as unknown as DilemmaDocument
+}
+
+function invalid(): never {
+  throw new DocumentVersionError('The project contains invalid character or animation data.')
+}
+
+function object(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) invalid()
+  return value as Record<string, unknown>
+}
+
+function array(value: unknown): unknown[] {
+  if (!Array.isArray(value)) invalid()
+  return value
+}
+
+function string(value: unknown): string {
+  if (typeof value !== 'string' || !value) invalid()
+  return value
+}
+
+function integer(value: unknown): number {
+  if (
+    typeof value !== 'number' ||
+    !Number.isInteger(value) ||
+    value < -0x80000000 ||
+    value > 0x7fffffff
+  )
+    invalid()
+  return value
+}
+
+function numbers(value: unknown, length: number): void {
+  const values = array(value)
+  if (values.length !== length || values.some((number) => !Number.isFinite(number))) invalid()
+}
+
+function validateDocument(doc: Record<string, unknown>): void {
+  const counts = new Map<string, number>()
+  for (const raw of array(doc['characters'])) {
+    const character = object(raw)
+    const id = string(character['id'])
+    string(character['name'])
+    string(object(character['source'])['uri'])
+    const joints = array(object(character['skeleton'])['joints'])
+    if (counts.has(id) || joints.length === 0) invalid()
+    counts.set(id, joints.length)
+    joints.forEach((rawJoint, index) => {
+      const joint = object(rawJoint)
+      string(joint['id'])
+      string(joint['name'])
+      const parent = integer(joint['parent'])
+      if (parent < -1 || parent >= index) invalid()
+      const rest = object(joint['rest'])
+      numbers(rest['translation'], 3)
+      numbers(rest['rotation'], 4)
+      numbers(rest['scale'], 3)
+    })
+  }
+  const ids = new Set<string>()
+  for (const raw of array(doc['clips'])) {
+    const clip = object(raw)
+    const id = string(clip['id'])
+    const count = counts.get(string(clip['characterId']))
+    string(clip['name'])
+    const start = integer(clip['start'])
+    const end = integer(clip['end'])
+    const fps = clip['fps']
+    if (ids.has(id) || !count || end < start || !Number.isFinite(fps) || Number(fps) <= 0) {
+      invalid()
+    }
+    ids.add(id)
+    const joints = new Set<number>()
+    for (const rawTrack of array(clip['tracks'])) {
+      const track = object(rawTrack)
+      const joint = integer(track['joint'])
+      if (joint < 0 || joint >= count || joints.has(joint)) invalid()
+      joints.add(joint)
+      for (const name of channels) {
+        if (track[name] === undefined) continue
+        const channel = object(track[name])
+        const frames = array(channel['frames'])
+        let previous = -Infinity
+        for (const value of frames) {
+          const frame = integer(value)
+          if (frame <= previous || frame < start || frame > end) invalid()
+          previous = frame
+        }
+        numbers(channel['values'], frames.length * (name === 'rotations' ? 4 : 3))
+      }
+    }
+  }
 }

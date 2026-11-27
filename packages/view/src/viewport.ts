@@ -102,7 +102,7 @@ export class Viewport {
   private renderer: WebGLRenderer
   private scene = new Scene()
   private camera = new PerspectiveCamera(35, 1, 0.01, 1000)
-  private grid = new GridHelper(10, 20, '#c5c8d1', '#dde0e7')
+  private grid = new GridHelper(10, 20, '#bec3cd', '#ced3dc')
   private clay = new MeshStandardMaterial({ color: '#a9aeb8', roughness: 0.8 })
   private wireframe = new MeshBasicMaterial({ color: '#535c6b', wireframe: true })
   private rig: Rig
@@ -120,6 +120,7 @@ export class Viewport {
 
   constructor(
     private canvas: HTMLCanvasElement,
+    background: string,
     private events: ViewportEvents,
   ) {
     this.renderer = new WebGLRenderer({
@@ -128,7 +129,7 @@ export class Viewport {
       powerPreference: 'high-performance',
     })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-    this.scene.background = new Color('#f6f7fa')
+    this.scene.background = new Color(background)
     this.scene.add(new HemisphereLight('#ffffff', '#404040', 1.6))
     const key = new DirectionalLight('#ffffff', 2)
     key.position.set(3, 6, 4)

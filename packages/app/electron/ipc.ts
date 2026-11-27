@@ -25,6 +25,11 @@ export type MenuAction =
   | 'undo'
   | 'redo'
   | 'frame'
+  | 'newClip'
+  | 'keySelection'
+  | 'deleteKeys'
+  | 'togglePlayback'
+  | 'toggleLoopPlayback'
 
 export interface OpenedFile {
   path: string

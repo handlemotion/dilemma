@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { MenuAction } from '../electron/ipc.ts'
 import { exportAnimation, importCharacter, openProject, saveProject } from './actions.ts'
-import { deleteKeys, keySelection } from './animation.ts'
+import { deleteKeys, keySelection, newClip } from './animation.ts'
 import { bridge } from './bridge.ts'
 import { AppMenuBar } from './components/app-menu-bar.tsx'
 import { Inspector } from './components/inspector.tsx'
@@ -9,7 +9,11 @@ import { Outliner } from './components/outliner.tsx'
 import { PanelContent, PanelDropTarget, PanelHeader } from './components/panel-header.tsx'
 import { StatusBar } from './components/status-bar.tsx'
 import { Timeline } from './components/timeline.tsx'
-import { AnimationActions, TransformTools, transformTools } from './components/transform-tools.tsx'
+import {
+  MainToolbar,
+  ViewportTransformTools,
+  transformTools,
+} from './components/transform-tools.tsx'
 import {
   DEFAULT_TIMELINE_HEIGHT,
   TRACK_HEIGHT,
@@ -17,7 +21,8 @@ import {
   timelineHeight,
 } from './components/timeline-tracks.ts'
 import { activeViewport, ViewportPanel } from './components/viewport-panel.tsx'
-import { ViewportToolbar } from './components/viewport-tools.tsx'
+import { ViewportMenuBar, WorkspaceToolRail } from './components/viewport-tools.tsx'
+import { ProjectTitleBar } from './components/window-controls.tsx'
 import { dockSide, panelTitles, type DockPanel, type DockSide } from './dock-layout.ts'
 import { editor, useEditorState } from './editor.ts'
 import { usePlayback } from './playback.ts'
@@ -38,18 +43,31 @@ export function App() {
     else if (action === 'exportFbx') void exportAnimation('fbx')
     else if (action === 'undo') editor.undo()
     else if (action === 'redo') editor.redo()
-    else activeViewport()?.frameSelection()
+    else if (action === 'frame') activeViewport()?.frameSelection()
+    else if (action === 'newClip') newClip()
+    else if (action === 'keySelection') keySelection()
+    else if (action === 'deleteKeys') deleteKeys()
+    else if (action === 'togglePlayback') {
+      const ui = useUi.getState()
+      ui.setPlaying(!ui.playing)
+    } else if (action === 'toggleLoopPlayback') {
+      const ui = useUi.getState()
+      ui.setLoopPlayback(!ui.loopPlayback)
+    }
   }, [])
   usePlayback()
   useShortcuts(runMenuAction)
   const sizes = useUi((s) => s.panelSizes)
   const layout = useUi((s) => s.dockLayout)
+  const outlinerOpen = useUi((s) => s.outlinerOpen)
   const panelDragging = useUi((s) => s.draggedPanel !== null)
   const leftWidth = sizes.left === undefined ? 'clamp(184px, 22vw, 272px)' : `${sizes.left}px`
   const rightWidth = sizes.right === undefined ? 'clamp(176px, 23vw, 272px)' : `${sizes.right}px`
   const sideLimit = `${SIDE_PANEL_LIMIT * 100}vw`
-  const leftColumn = layout.left.active ? `min(${leftWidth}, ${sideLimit})` : '0px'
-  const rightColumn = layout.right.active ? `min(${rightWidth}, ${sideLimit})` : '0px'
+  const leftOpen = dockIsVisible(layout.left.active, outlinerOpen)
+  const rightOpen = dockIsVisible(layout.right.active, outlinerOpen)
+  const leftColumn = leftOpen ? `min(${leftWidth}, ${sideLimit})` : '0px'
+  const rightColumn = rightOpen ? `min(${rightWidth}, ${sideLimit})` : '0px'
   const timelineCharacter = useEditorState(({ doc, playhead }) => {
     const clip = doc.clips.find((item) => item.id === playhead.clipId)
     return doc.characters.find((character) => character.id === clip?.characterId)
@@ -65,8 +83,8 @@ export function App() {
     <div
       className="grid h-full"
       style={{
-        gridTemplateColumns: `${leftColumn} minmax(0, 1fr) ${rightColumn}`,
-        gridTemplateRows: `32px 36px minmax(0, 1fr) min(${timelineSize}px, max(${timelineMin}px, 55vh)) minmax(36px, auto)`,
+        gridTemplateColumns: `40px ${leftColumn} minmax(0, 1fr) ${rightColumn}`,
+        gridTemplateRows: `32px 40px minmax(0, 1fr) min(${timelineSize}px, max(${timelineMin}px, 55vh)) minmax(36px, auto)`,
       }}
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes('Files')) return
@@ -82,7 +100,6 @@ export function App() {
         void importCharacter(file)
       }}
     >
-      <AppMenuBar run={runMenuAction} />
       <input
         ref={fileInput}
         type="file"
@@ -94,16 +111,20 @@ export function App() {
           event.currentTarget.value = ''
         }}
       />
-      <AnimationActions onImport={() => runMenuAction('open')} />
+      <ProjectTitleBar>
+        {bridge?.platform !== 'darwin' && <AppMenuBar run={runMenuAction} />}
+      </ProjectTitleBar>
+      <MainToolbar run={runMenuAction} />
+      <WorkspaceToolRail />
       <SidePanel panel="outliner">
         <Outliner />
       </SidePanel>
 
-      <main className="relative col-start-2 row-start-3 flex min-h-0 min-w-0 flex-col overflow-hidden bg-timeline">
-        <ViewportToolbar onFrame={() => activeViewport()?.frameSelection()} />
+      <main className="relative col-start-3 row-start-3 flex min-h-0 min-w-0 flex-col overflow-hidden bg-viewport">
+        <ViewportMenuBar onFrame={() => runMenuAction('frame')} />
         <div className="relative min-h-0 flex-1">
           <ViewportPanel />
-          <TransformTools />
+          <ViewportTransformTools />
           {dragging && (
             <div
               aria-hidden="true"
@@ -112,13 +133,13 @@ export function App() {
           )}
           {loading && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <p role="status" className="rounded-md bg-panel p-3 text-muted">
+              <p role="status" className="rounded-md bg-raised p-3 text-muted">
                 {loading}
               </p>
             </div>
           )}
         </div>
-        {panelDragging && !layout.left.active && (
+        {panelDragging && !leftOpen && (
           <PanelDropTarget
             side="left"
             drop="stack"
@@ -126,7 +147,7 @@ export function App() {
             className="absolute inset-y-0 left-0 z-20 w-20"
           />
         )}
-        {panelDragging && !layout.right.active && (
+        {panelDragging && !rightOpen && (
           <PanelDropTarget
             side="right"
             drop="stack"
@@ -152,18 +173,24 @@ export function App() {
   )
 }
 
+function dockIsVisible(panel: DockPanel | null, outlinerOpen: boolean) {
+  return panel === 'inspector' || (panel === 'outliner' && outlinerOpen)
+}
+
 function SidePanel({ panel, children }: { panel: DockPanel; children: ReactNode }) {
   const layout = useUi((s) => s.dockLayout)
+  const outlinerOpen = useUi((s) => s.outlinerOpen)
   const dragged = useUi((s) => s.draggedPanel)
   const side = dockSide(layout, panel)
-  const active = layout[side].active === panel
+  const active = layout[side].active === panel && dockIsVisible(panel, outlinerOpen)
   const left = side === 'left'
   const receivingDrop = active && dragged && dockSide(layout, dragged) !== side
   return (
     <aside
+      id={panel === 'outliner' ? 'outliner-panel' : undefined}
       aria-label={panelTitles[panel]}
       hidden={!active}
-      className={`relative row-start-3 flex min-h-0 min-w-0 flex-col border-line bg-panel ${left ? 'col-start-1 border-r' : 'col-start-3 border-l'}`}
+      className={`relative row-start-3 flex min-h-0 min-w-0 flex-col border-line bg-panel ${left ? 'col-start-2 border-r' : 'col-start-4 border-l'}`}
     >
       <PanelDivider
         panel={side}

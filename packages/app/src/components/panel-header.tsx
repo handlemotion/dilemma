@@ -67,12 +67,12 @@ export function PanelHeader({ panel, children }: { panel: DockPanel; children?: 
   return (
     <div
       data-panel-header
-      className="flex h-9 shrink-0 items-center justify-between gap-2 ps-1.5 pe-2"
+      className="flex h-9 shrink-0 items-center justify-between gap-1 border-b border-line p-1"
     >
       <div
         role="tablist"
         aria-label={`${side === 'left' ? 'Left' : 'Right'} dock`}
-        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-0.5 [scrollbar-width:none]"
+        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]"
         style={
           stacked && children
             ? { maskImage: 'linear-gradient(to right, black calc(100% - 12px), transparent)' }
@@ -88,7 +88,7 @@ export function PanelHeader({ panel, children }: { panel: DockPanel; children?: 
             aria-selected={tab === panel}
             aria-controls={panelBodyId(tab)}
             tabIndex={tab === panel ? 0 : -1}
-            className={`h-[26px] shrink-0 cursor-grab rounded-md px-2 text-muted hover:bg-control aria-selected:text-ink ${stacked ? 'aria-selected:bg-control' : ''}`}
+            className={`h-[26px] shrink-0 cursor-grab rounded-md px-1 text-muted hover:bg-control aria-selected:text-ink ${stacked ? 'aria-selected:bg-control' : ''}`}
             onClick={() => selectTab(tab)}
             onDragOver={(event) => {
               const dragged = useUi.getState().draggedPanel
@@ -124,7 +124,7 @@ export function PanelContent({
       id={panelBodyId(panel)}
       role="tabpanel"
       aria-labelledby={titleId(panel, panel)}
-      className={className}
+      className={`p-1 ${className}`}
     >
       {children}
     </div>

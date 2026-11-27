@@ -101,7 +101,7 @@ function createWindow(): BrowserWindow {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: '#f5f6f8',
+    backgroundColor: '#e9ebef',
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 12, y: 10 },
     autoHideMenuBar: !isMac,
@@ -184,17 +184,21 @@ function buildMenu(): void {
       {
         label: 'View',
         submenu: [
-          {
-            label: 'Frame Selection',
-            accelerator: 'F',
-            click: () => send('frame'),
-            registerAccelerator: false,
-          },
-          { type: 'separator' },
           { role: 'reload' },
           { role: 'toggleDevTools' },
           { type: 'separator' },
           { role: 'togglefullscreen' },
+        ],
+      },
+      {
+        label: 'Timeline',
+        submenu: [
+          { label: 'Play / Pause', click: () => send('togglePlayback') },
+          { label: 'Toggle Loop Playback', click: () => send('toggleLoopPlayback') },
+          { type: 'separator' },
+          { label: 'New Clip', click: () => send('newClip') },
+          { label: 'Set Key', click: () => send('keySelection') },
+          { label: 'Delete Selected Keys', click: () => send('deleteKeys') },
         ],
       },
       { role: 'windowMenu' },

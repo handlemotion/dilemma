@@ -84,6 +84,8 @@ export const COMPOSITION_GRIDS = [
 interface UiState {
   outlinerFocus: string | null
   setOutlinerFocus(focus: string | null): void
+  outlinerOpen: boolean
+  toggleOutliner(): void
   dockLayout: DockLayout
   draggedPanel: DockPanel | null
   setDraggedPanel(panel: DockPanel | null): void
@@ -115,6 +117,7 @@ interface UiState {
   loading: string | null
   error: string | null
   projectPath: string | null
+  projectDirty: boolean
   viewportSettings: ViewportSettings
   setViewportSettings(settings: Partial<ViewportSettings>): void
   viewportMarquee: ViewportMarquee | null
@@ -138,14 +141,28 @@ interface UiState {
 export const useUi = create<UiState>((set) => ({
   outlinerFocus: null,
   setOutlinerFocus: (outlinerFocus) => set({ outlinerFocus }),
+  outlinerOpen: false,
+  toggleOutliner: () =>
+    set(({ dockLayout, outlinerOpen }) => {
+      const side = dockSide(dockLayout, 'outliner')
+      const dock = dockLayout[side]
+      const closing = outlinerOpen && dock.active === 'outliner'
+      const active = closing && dock.panels.includes('inspector') ? 'inspector' : 'outliner'
+      return {
+        outlinerOpen: !closing,
+        dockLayout: { ...dockLayout, [side]: { ...dock, active } },
+      }
+    }),
   dockLayout: defaultDockLayout,
   draggedPanel: null,
   setDraggedPanel: (draggedPanel) => set({ draggedPanel }),
   activatePanel: (panel) =>
-    set(({ dockLayout }) => {
+    set(({ dockLayout, outlinerOpen }) => {
       const side = dockSide(dockLayout, panel)
-      if (dockLayout[side].active === panel) return { dockLayout }
-      return { dockLayout: { ...dockLayout, [side]: { ...dockLayout[side], active: panel } } }
+      return {
+        outlinerOpen: outlinerOpen || panel === 'outliner',
+        dockLayout: { ...dockLayout, [side]: { ...dockLayout[side], active: panel } },
+      }
     }),
   moveDockPanel: (panel, side, drop) =>
     set(({ dockLayout }) => ({
@@ -183,6 +200,7 @@ export const useUi = create<UiState>((set) => ({
   loading: null,
   error: null,
   projectPath: null,
+  projectDirty: false,
   viewportSettings: {
     cameraLocked: false,
     floorGrid: true,

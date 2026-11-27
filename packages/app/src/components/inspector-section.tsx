@@ -26,7 +26,7 @@ export function InspectorSection({
           type="button"
           aria-expanded={expanded}
           aria-controls={propertiesId}
-          className="group flex h-9 w-full items-center gap-2 px-3 text-left hover:bg-control"
+          className="group flex h-9 w-full items-center gap-2 rounded-md p-1 text-left hover:bg-control"
           onClick={() => useUi.getState().setInspectorExpanded(id, !expanded)}
         >
           <Icon

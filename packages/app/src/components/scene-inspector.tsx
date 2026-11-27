@@ -96,7 +96,7 @@ export function SceneInspector({ timing }: { timing: SceneTiming }) {
 
 function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section aria-label={title} className="border-t border-line px-3 pt-2 pb-3">
+    <section aria-label={title} className="border-t border-line p-1">
       <h3 className="mb-1.5 text-xs leading-5 font-medium text-muted">{title}</h3>
       <div className="grid gap-1">{children}</div>
     </section>
@@ -162,7 +162,7 @@ function SettingSelect<T extends string>({
     >
       <Select.Trigger
         aria-label={label}
-        className="flex h-6 min-w-0 items-center justify-between gap-1 rounded-md bg-control px-2 text-left hover:bg-control-hover"
+        className="flex h-6 min-w-0 items-center justify-between gap-1 rounded-md bg-raised px-2 text-left hover:bg-control-hover"
       >
         <Select.Value className="truncate" />
         <Select.Icon className="shrink-0 text-faint" aria-hidden="true">

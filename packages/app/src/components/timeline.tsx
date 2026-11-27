@@ -264,7 +264,7 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
         <div
           role="group"
           aria-label="Timeline controls"
-          className="flex shrink-0 items-center gap-2 border-b border-line px-2"
+          className="flex shrink-0 items-center gap-2 border-b border-line p-1"
           style={{ height: HEADER }}
         >
           <input
@@ -276,7 +276,7 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
             title={`Frame ${frame} of ${end}`}
             aria-label="Current time"
             aria-description="Enter a frame number, seconds like 1s, or a timecode like 00:01:00."
-            className="shrink-0 rounded-md bg-control px-2 py-1 text-center font-mono tabular-nums text-ink outline-none select-text ring-muted ring-inset focus-visible:ring-1 group-has-[canvas:focus-visible]/timeline:ring-1"
+            className="shrink-0 rounded-md bg-raised px-2 py-1 text-center font-mono tabular-nums text-ink outline-none select-text ring-muted ring-inset focus-visible:ring-1 group-has-[canvas:focus-visible]/timeline:ring-1"
             style={{ width: `calc(${timecode.length}ch + 1rem)` }}
             onFocus={(event) => {
               setPlaying(false)
@@ -336,14 +336,14 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
           style={{ scrollPaddingTop: TRACK_HEIGHT }}
         >
           <div
-            className="selection-tint sticky top-0 z-10 isolate flex items-center gap-2 bg-panel px-2"
+            className="selection-tint sticky top-0 z-10 isolate flex items-center gap-2 bg-panel p-1"
             data-tinted={!expanded && selectedJoints.size > 0 ? '' : undefined}
             style={{ height: TRACK_HEIGHT }}
           >
             {character && allRows.length > 1 ? (
               <button
                 type="button"
-                className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1 text-left font-medium text-ink hover:bg-control"
+                className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md p-1 text-left font-medium text-ink hover:bg-control"
                 data-timeline-track
                 aria-expanded={expanded}
                 aria-controls="timeline-joint-tracks"
@@ -372,7 +372,7 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
                   <button
                     key={row.id}
                     type="button"
-                    className="selection-tint relative isolate block w-full truncate border-t border-line pr-2 text-left text-muted hover:bg-control hover:text-ink"
+                    className="selection-tint relative isolate block w-full truncate border-t border-line pr-1 text-left text-muted hover:bg-control hover:text-ink"
                     style={{ height: TRACK_HEIGHT, paddingLeft: 18 + Math.min(10, row.depth) * 10 }}
                     data-timeline-track
                     aria-pressed={selected}
@@ -614,7 +614,7 @@ function draw(
     ctx.fillStyle = major ? '#a0a5b3' : '#ccd0da'
     ctx.fillRect(tick, RULER - (major ? 6 : 3), 1, major ? 5 : 2)
     if (major) {
-      ctx.fillStyle = '#edeef3'
+      ctx.fillStyle = palette.getPropertyValue('--color-line')
       ctx.fillRect(tick, HEADER, 1, height - HEADER)
       ctx.fillStyle = palette.getPropertyValue('--color-muted')
       ctx.textAlign = f === start ? 'left' : f === end ? 'right' : 'center'

@@ -2,11 +2,9 @@ import { Menu } from '@base-ui/react/menu'
 import { Menubar } from '@base-ui/react/menubar'
 import type { ReactNode } from 'react'
 import type { MenuAction } from '../../electron/ipc.ts'
-import { deleteKeys, keySelection, newClip } from '../animation.ts'
 import { bridge } from '../bridge.ts'
 import { useEditorState } from '../editor.ts'
 import { useUi } from '../ui-store.ts'
-import { WindowControls } from './window-controls.tsx'
 
 const itemClass =
   'selection-tint relative isolate flex cursor-default items-center justify-between gap-6 rounded-sm px-2 py-1 text-ink outline-none data-highlighted:bg-control data-disabled:text-faint data-disabled:opacity-55'
@@ -17,7 +15,6 @@ export function AppMenuBar({ run }: { run(action: MenuAction): void }) {
   const playing = useUi((s) => s.playing)
   const loop = useUi((s) => s.loopPlayback)
   const range = useUi((s) => s.timelineRange)
-  const viewport = useUi((s) => s.viewportSettings)
   const hasCharacter = doc.characters.length > 0
   const fileDisabled = !bridge || Boolean(loading)
   const mac = bridge?.platform === 'darwin' || (!bridge && navigator.platform.startsWith('Mac'))
@@ -25,126 +22,94 @@ export function AppMenuBar({ run }: { run(action: MenuAction): void }) {
   const shifted = mac ? `⇧${command}` : 'Ctrl+Shift+'
 
   return (
-    <header
+    <Menubar
       data-animation-tools
-      className="drag-region col-span-full flex min-w-0 items-center gap-1 border-b border-line bg-panel pe-2"
+      aria-label="Application menu"
+      modal={false}
+      className="flex h-full items-center gap-0.5"
     >
-      <WindowControls />
-      <Menubar
-        aria-label="Application menu"
-        modal={false}
-        className="flex h-full items-center gap-0.5"
-      >
-        <AppMenu title="File">
-          <Command
-            label="Import Character…"
-            shortcut={bridge && `${command}O`}
-            disabled={Boolean(loading)}
-            onClick={() => run('open')}
-          />
-          <Command
-            label="Open Project…"
-            shortcut={bridge && `${shifted}O`}
-            disabled={fileDisabled}
-            onClick={() => run('openProject')}
-          />
-          <Menu.Separator className="my-1 border-t border-line" />
-          <Command
-            label="Save Project"
-            shortcut={bridge && `${command}S`}
-            disabled={fileDisabled}
-            onClick={() => run('saveProject')}
-          />
-          <Command
-            label="Save Project As…"
-            shortcut={bridge && `${shifted}S`}
-            disabled={fileDisabled}
-            onClick={() => run('saveProjectAs')}
-          />
-          <Menu.Separator className="my-1 border-t border-line" />
-          <Command
-            label="Export GLB…"
-            disabled={fileDisabled || !playhead.clipId}
-            onClick={() => run('exportGlb')}
-          />
-          <Command
-            label="Export FBX…"
-            disabled={fileDisabled || !playhead.clipId}
-            onClick={() => run('exportFbx')}
-          />
-        </AppMenu>
-        <AppMenu title="Edit">
-          <Command
-            label="Undo"
-            shortcut={`${command}Z`}
-            disabled={!canUndo}
-            onClick={() => run('undo')}
-          />
-          <Command
-            label="Redo"
-            shortcut={`${shifted}Z`}
-            disabled={!canRedo}
-            onClick={() => run('redo')}
-          />
-        </AppMenu>
-        <AppMenu title="View">
-          <Command
-            label="Frame Selection"
-            shortcut="F"
-            disabled={!hasCharacter || viewport.cameraLocked}
-            onClick={() => run('frame')}
-          />
-          <Toggle
-            label="Lock Camera"
-            value={viewport.cameraLocked}
-            onChange={(cameraLocked) => useUi.getState().setViewportSettings({ cameraLocked })}
-          />
-          <Toggle
-            label="Camera Focus"
-            value={viewport.cameraFrame}
-            onChange={(cameraFrame) => useUi.getState().setViewportSettings({ cameraFrame })}
-          />
-          <Toggle
-            label="Floor Grid"
-            value={viewport.floorGrid}
-            onChange={(floorGrid) => useUi.getState().setViewportSettings({ floorGrid })}
-          />
-        </AppMenu>
-        <AppMenu title="Timeline">
-          <Command
-            label={playing ? 'Pause' : 'Play'}
-            shortcut="Space"
-            onClick={() => useUi.getState().setPlaying(!playing)}
-          />
-          <Toggle
-            label="Loop Playback"
-            value={loop}
-            onChange={(value) => useUi.getState().setLoopPlayback(value)}
-          />
-          <Menu.Separator className="my-1 border-t border-line" />
-          <Command label="New Clip" disabled={!hasCharacter} onClick={newClip} />
-          <Command
-            label="Set Key"
-            shortcut="S"
-            disabled={selection.joints.length === 0}
-            onClick={keySelection}
-          />
-          <Command
-            label="Delete Selected Keys"
-            shortcut="Delete"
-            disabled={!range || range.rowId === 'preview'}
-            onClick={deleteKeys}
-          />
-        </AppMenu>
-      </Menubar>
-    </header>
+      <AppMenu title="File">
+        <Command
+          label="Import Character…"
+          shortcut={bridge && `${command}O`}
+          disabled={Boolean(loading)}
+          onClick={() => run('open')}
+        />
+        <Command
+          label="Open Project…"
+          shortcut={bridge && `${shifted}O`}
+          disabled={fileDisabled}
+          onClick={() => run('openProject')}
+        />
+        <Menu.Separator className="my-1 border-t border-line" />
+        <Command
+          label="Save Project"
+          shortcut={bridge && `${command}S`}
+          disabled={fileDisabled}
+          onClick={() => run('saveProject')}
+        />
+        <Command
+          label="Save Project As…"
+          shortcut={bridge && `${shifted}S`}
+          disabled={fileDisabled}
+          onClick={() => run('saveProjectAs')}
+        />
+        <Menu.Separator className="my-1 border-t border-line" />
+        <Command
+          label="Export GLB…"
+          disabled={fileDisabled || !playhead.clipId}
+          onClick={() => run('exportGlb')}
+        />
+        <Command
+          label="Export FBX…"
+          disabled={fileDisabled || !playhead.clipId}
+          onClick={() => run('exportFbx')}
+        />
+      </AppMenu>
+      <AppMenu title="Edit">
+        <Command
+          label="Undo"
+          shortcut={`${command}Z`}
+          disabled={!canUndo}
+          onClick={() => run('undo')}
+        />
+        <Command
+          label="Redo"
+          shortcut={`${shifted}Z`}
+          disabled={!canRedo}
+          onClick={() => run('redo')}
+        />
+      </AppMenu>
+      <AppMenu title="Timeline">
+        <Command
+          label={playing ? 'Pause' : 'Play'}
+          shortcut="Space"
+          onClick={() => run('togglePlayback')}
+        />
+        <Toggle label="Loop Playback" value={loop} onChange={() => run('toggleLoopPlayback')} />
+        <Menu.Separator className="my-1 border-t border-line" />
+        <Command label="New Clip" disabled={!hasCharacter} onClick={() => run('newClip')} />
+        <Command
+          label="Set Key"
+          shortcut="S"
+          disabled={selection.joints.length === 0}
+          onClick={() => run('keySelection')}
+        />
+        <Command
+          label="Delete Selected Keys"
+          shortcut="Delete"
+          disabled={!range || range.rowId === 'preview'}
+          onClick={() => run('deleteKeys')}
+        />
+      </AppMenu>
+    </Menubar>
   )
 }
 
 function AppMenu({ title, children }: { title: string; children: ReactNode }) {
   return (
     <Menu.Root>
-      <Menu.Trigger className="inline-flex h-6 items-center rounded-md px-2 text-ink hover:bg-control data-popup-open:bg-control">
+      <Menu.Trigger className="inline-flex h-6 items-center rounded-md px-1 text-ink hover:bg-control data-popup-open:bg-control">
         {title}
       </Menu.Trigger>
       <Menu.Portal>

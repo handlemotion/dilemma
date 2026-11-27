@@ -8,8 +8,16 @@ import { editor } from './editor.ts'
 import { useUi } from './ui-store.ts'
 import { FBX_BAKE_FPS, type OpenedFile } from '../electron/ipc.ts'
 
-let savedProject = JSON.stringify(editor.getState().doc)
+let observedDoc = editor.getState().doc
+let savedProject = JSON.stringify(observedDoc)
 let fileQueue = Promise.resolve()
+
+const unsubscribeProject = editor.subscribe(({ doc }) => {
+  if (doc === observedDoc) return
+  observedDoc = doc
+  useUi.setState({ projectDirty: JSON.stringify(doc) !== savedProject })
+})
+import.meta.hot?.dispose(unsubscribeProject)
 
 function fileOperation(activity: string, run: () => Promise<void>): Promise<void> {
   fileQueue = fileQueue.then(async () => {
@@ -62,7 +70,10 @@ export function saveProject(saveAs = false): Promise<void> {
     const file = await bridge?.saveProject(doc, ui.projectPath, saveAs)
     if (!file) return
     savedProject = JSON.stringify(doc)
-    ui.setProjectPath(file)
+    useUi.setState({
+      projectPath: file,
+      projectDirty: observedDoc !== doc && JSON.stringify(observedDoc) !== savedProject,
+    })
   })
 }
 
@@ -101,8 +112,8 @@ export function openProject(): Promise<void> {
     ui.setWorkArea(null)
     ui.setPreviewFrame(restored.sceneTiming.start)
     ui.setAssets(assets)
-    editor.load(restored)
     savedProject = JSON.stringify(restored)
+    editor.load(restored)
     ui.setProjectPath(opened.path)
   })
 }

@@ -177,7 +177,7 @@ function JointProperties({
         const keyed = track?.[channel]?.frames.includes(frame) ?? false
 
         return (
-          <section key={channel} aria-label={label} className="border-t border-line px-3 pt-2 pb-3">
+          <section key={channel} aria-label={label} className="border-t border-line p-1">
             <div className="mb-1.5 flex items-center justify-between">
               <h3 className="text-xs leading-5 font-medium text-muted">{label}</h3>
               <button

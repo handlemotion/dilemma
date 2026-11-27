@@ -260,7 +260,7 @@ export function Outliner() {
         </button>
       </PanelHeader>
       <PanelContent panel="outliner" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <label className="my-1 flex h-8 shrink-0 items-center gap-1.5 border-b border-line px-3 pb-2.5 text-faint focus-within:border-accent">
+        <label className="flex h-8 shrink-0 items-center gap-1.5 border-b border-line p-1 text-faint focus-within:border-accent">
           <Icon name="search" size={14} className="shrink-0" />
           <input
             id="outliner-joint-search"
@@ -280,7 +280,7 @@ export function Outliner() {
         {focused && (
           <nav
             aria-label="Outliner branch"
-            className="flex shrink-0 gap-1 overflow-x-auto px-2 pb-2 whitespace-nowrap"
+            className="flex shrink-0 gap-1 overflow-x-auto p-1 whitespace-nowrap"
           >
             <button
               type="button"
@@ -317,7 +317,7 @@ export function Outliner() {
             renderContextMenu={(item, menu) => {
               const node = visible.get(item.path.replace(/\/$/, ''))
               return (
-                <div className="min-w-32 rounded-md border border-line bg-panel p-1 shadow-md">
+                <div className="min-w-32 rounded-md border border-line bg-raised p-1 shadow-md">
                   <button
                     type="button"
                     className="block w-full rounded px-2 py-1 text-left hover:bg-control disabled:opacity-50"

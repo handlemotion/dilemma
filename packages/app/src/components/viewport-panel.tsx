@@ -26,7 +26,9 @@ export function ViewportPanel() {
 
   useEffect(() => {
     let transform: ReturnType<typeof beginTransform> | undefined
-    const viewport = new Viewport(canvas.current!, {
+    const surface = canvas.current!
+    const background = getComputedStyle(surface).getPropertyValue('--color-viewport').trim()
+    const viewport = new Viewport(surface, background, {
       pick(joint, additive) {
         const { joints } = editor.getState().selection
         if (!joint) {

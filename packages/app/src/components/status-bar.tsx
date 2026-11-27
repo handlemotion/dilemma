@@ -28,7 +28,7 @@ export function StatusBar() {
   return (
     <footer
       data-timeline-footer
-      className="col-span-full flex min-h-9 min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-line bg-panel px-2 py-1"
+      className="col-span-full flex min-h-9 min-w-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-line bg-panel p-1"
     >
       <div className="flex min-w-0 flex-wrap items-center gap-1 whitespace-nowrap">
         {clip ? (

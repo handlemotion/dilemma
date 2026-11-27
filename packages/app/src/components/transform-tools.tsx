@@ -1,105 +1,133 @@
 import type { TransformMode } from '@dilemma/view'
-import { exportAnimation } from '../actions.ts'
-import { newClip } from '../animation.ts'
-import { bridge } from '../bridge.ts'
-import { editor, useEditorState } from '../editor.ts'
+import type { MenuAction } from '../../electron/ipc.ts'
+import { useEditorState } from '../editor.ts'
 import { Icon, type IconName } from '../icons/central.tsx'
 import { useUi } from '../ui-store.ts'
 
-export const transformTools = [
-  { mode: 'translate', label: 'Move', shortcut: 'w', icon: 'move' },
-  { mode: 'rotate', label: 'Rotate', shortcut: 'e', icon: 'rotate' },
-  { mode: 'scale', label: 'Scale', shortcut: 'r', icon: 'scale' },
-  { mode: 'ik', label: 'Limb IK', shortcut: 'i', icon: null },
-] as const satisfies readonly {
+interface TransformTool {
   mode: TransformMode
   label: string
   shortcut: string
   icon: IconName | null
-}[]
+}
 
-export function AnimationActions({ onImport }: { onImport(): void }) {
-  const hasCharacter = useEditorState((s) => s.doc.characters.length > 0)
-  const canUndo = useEditorState((s) => s.canUndo)
-  const canRedo = useEditorState((s) => s.canRedo)
-  const clipId = useEditorState((s) => s.playhead.clipId)
+const viewportTransforms = [
+  { mode: 'translate', label: 'Move', shortcut: 'w', icon: 'move' },
+  { mode: 'rotate', label: 'Rotate', shortcut: 'e', icon: 'rotate' },
+  { mode: 'scale', label: 'Scale', shortcut: 'r', icon: 'scale' },
+] as const satisfies readonly TransformTool[]
+
+const limbIk = {
+  mode: 'ik',
+  label: 'Limb IK',
+  shortcut: 'i',
+  icon: null,
+} as const satisfies TransformTool
+
+export const transformTools = [...viewportTransforms, limbIk]
+
+export function MainToolbar({ run }: { run(action: MenuAction): void }) {
+  const { canUndo, canRedo, doc } = useEditorState()
   const loading = useUi((s) => s.loading)
 
   return (
     <div
       data-animation-tools
       role="toolbar"
-      aria-label="Animation actions"
-      className="col-span-full flex min-w-0 items-center gap-2 border-b border-line bg-panel px-2"
+      aria-label="Main tools"
+      className="col-span-full row-start-2 flex h-10 min-w-0 items-center gap-1.5 border-b border-line bg-shell p-1"
     >
-      <button
-        type="button"
-        className="shell-icon"
-        aria-label="Import character"
-        title="Import character"
-        disabled={Boolean(loading)}
-        onClick={onImport}
-      >
-        <Icon name="import" />
-      </button>
-      <button
-        type="button"
-        className="shell-icon"
-        aria-label="New clip"
-        title="New clip"
-        disabled={!hasCharacter}
-        onClick={newClip}
-      >
-        <Icon name="newClip" />
-      </button>
-      <IconButton onClick={() => editor.undo()} disabled={!canUndo} title="Undo (⌘Z)" icon="undo" />
-      <IconButton
-        onClick={() => editor.redo()}
-        disabled={!canRedo}
-        title="Redo (⇧⌘Z)"
-        icon="redo"
-      />
-      {bridge && (
-        <>
-          <button
-            type="button"
-            className="shell-action ms-auto"
-            disabled={!clipId || Boolean(loading)}
-            onClick={() => void exportAnimation()}
-          >
-            Export GLB
-          </button>
-          <button
-            type="button"
-            className="shell-action"
-            disabled={!clipId || Boolean(loading)}
-            onClick={() => void exportAnimation('fbx')}
-          >
-            Export FBX
-          </button>
-        </>
-      )}
+      <div role="group" aria-label="History" className="flex gap-1">
+        <ToolbarAction icon="undo" label="Undo" disabled={!canUndo} run={() => run('undo')} />
+        <ToolbarAction icon="redo" label="Redo" disabled={!canRedo} run={() => run('redo')} />
+      </div>
+      <span aria-hidden="true" className="h-4 border-l border-line" />
+      <div role="group" aria-label="Character and clip" className="flex gap-1">
+        <ToolbarAction
+          icon="import"
+          label="Import Character"
+          disabled={Boolean(loading)}
+          run={() => run('open')}
+        />
+        <ToolbarAction
+          icon="newClip"
+          label="New Clip"
+          disabled={!doc.characters.length}
+          run={() => run('newClip')}
+        />
+      </div>
     </div>
   )
 }
 
-function IconButton(props: { onClick(): void; disabled: boolean; title: string; icon: IconName }) {
+function ToolbarAction({
+  icon,
+  label,
+  disabled,
+  run,
+}: {
+  icon: IconName
+  label: string
+  disabled: boolean
+  run(): void
+}) {
   return (
     <button
       type="button"
-      onClick={props.onClick}
-      disabled={props.disabled}
-      title={props.title}
-      aria-label={props.title}
-      className="shell-icon"
+      className="shell-icon shell-rail-icon"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={run}
     >
-      <Icon name={props.icon} size={15} />
+      <Icon name={icon} size={20} />
     </button>
   )
 }
 
-export function TransformTools() {
-  const mode = useUi((s) => s.transformMode)
+export function LimbIkTool() {
+  return <TransformToolButton tool={limbIk} />
+}
+
+export function ViewportTransformTools() {
+  const isIk = useUi((s) => s.transformMode === 'ik')
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-2 z-10 flex flex-col items-center gap-1 px-1">
+      {isIk && <LimbHint />}
+      <div
+        data-animation-tools
+        role="toolbar"
+        aria-label="Transform tools"
+        className="pointer-events-auto flex gap-1 rounded-lg border border-line bg-raised p-1"
+      >
+        {viewportTransforms.map((tool) => (
+          <TransformToolButton key={tool.mode} tool={tool} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function TransformToolButton({ tool }: { tool: TransformTool }) {
+  const { mode, shortcut, icon, label } = tool
+  const active = useUi((s) => s.transformMode === mode)
+  const key = shortcut.toUpperCase()
+  return (
+    <button
+      type="button"
+      className="shell-icon shell-rail-icon shell-tool"
+      aria-label={label}
+      aria-pressed={active}
+      aria-keyshortcuts={key}
+      title={`${label} (${key})`}
+      onClick={() => useUi.getState().setTransformMode(mode)}
+    >
+      {icon ? <Icon name={icon} size={20} /> : <span className="text-sm font-semibold">IK</span>}
+    </button>
+  )
+}
+
+function LimbHint() {
   const autoKey = useUi((s) => s.autoKey)
   const ikHint = useEditorState(({ doc, playhead, selection }) => {
     const clip = doc.clips.find(({ id }) => id === playhead.clipId)
@@ -119,34 +147,5 @@ export function TransformTools() {
         : 'Drag the target into place, then press S to key it.'
   })
 
-  return (
-    <div
-      data-animation-tools
-      role="toolbar"
-      aria-label="Viewport tools"
-      className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2"
-    >
-      {mode === 'ik' && (
-        <p className="mb-2 rounded-md bg-panel px-2 py-1 text-center text-xs whitespace-nowrap text-ink">
-          {ikHint}
-        </p>
-      )}
-      <div className="mx-auto flex w-fit items-center gap-1 rounded-lg border border-ink/10 bg-panel bg-clip-padding p-1.5">
-        {transformTools.map(({ mode: tool, label, shortcut, icon }) => (
-          <button
-            key={tool}
-            type="button"
-            className="shell-icon shell-tool"
-            aria-label={label}
-            aria-pressed={mode === tool}
-            aria-keyshortcuts={shortcut.toUpperCase()}
-            title={`${label} (${shortcut.toUpperCase()})`}
-            onClick={() => useUi.getState().setTransformMode(tool)}
-          >
-            {icon ? <Icon name={icon} /> : <span className="text-xs font-semibold">IK</span>}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
+  return <p className="rounded-md bg-raised px-2 py-1 text-center text-xs text-ink">{ikHint}</p>
 }

@@ -2,14 +2,15 @@
 
 @theme {
   /* Connected workspace surfaces. */
-  --color-canvas: #f5f6f8;
-  --color-panel: #ffffff;
-  --color-timeline: #f6f7fa;
+  --color-shell: #e9ebef;
+  --color-panel: var(--color-shell);
+  --color-timeline: #e6e8ed;
+  --color-viewport: #dde0e6;
   --color-raised: #ffffff;
-  --color-control: #f0f1f4;
-  --color-control-hover: #e7e9ee;
-  --color-control-divider: #dfe1e7;
-  --color-line: #e9eaf0;
+  --color-control: #dce0e6;
+  --color-control-hover: #f3f4f6;
+  --color-control-divider: #cdd2d9;
+  --color-line: #d7dbe2;
   --color-ink: #22242b;
   --color-muted: #565b68;
   --color-faint: #656b79;
@@ -33,7 +34,7 @@ body,
 
 body {
   margin: 0;
-  background: var(--color-canvas);
+  background: var(--color-shell);
   color: var(--color-ink);
   font-family: var(--font-sans);
   font-size: 12px;
@@ -48,13 +49,18 @@ body {
 
 .drag-region button,
 .drag-region [role='combobox'],
-.drag-region [role='menubar'] {
+.drag-region [role='menubar'],
+.drag-region [role='tablist'] {
   -webkit-app-region: no-drag;
 }
 
 @layer components {
   .shell-icon {
-    @apply inline-flex size-[26px] shrink-0 items-center justify-center rounded-md p-1 text-muted enabled:hover:bg-control enabled:hover:text-ink disabled:text-faint;
+    @apply inline-flex size-[26px] shrink-0 items-center justify-center rounded-md bg-raised p-1 text-muted enabled:hover:bg-control-hover enabled:hover:text-ink disabled:text-faint;
+  }
+
+  .shell-rail-icon {
+    @apply size-[30px];
   }
 
   .shell-tool[aria-pressed='true'] {
@@ -70,11 +76,11 @@ body {
   }
 
   .shell-action {
-    @apply inline-flex h-[26px] shrink-0 items-center justify-center rounded-md px-2 text-muted enabled:hover:bg-control enabled:hover:text-ink disabled:text-faint;
+    @apply inline-flex h-[26px] shrink-0 items-center justify-center rounded-md bg-raised px-2 text-muted enabled:hover:bg-control-hover enabled:hover:text-ink disabled:text-faint;
   }
 
   .shell-field {
-    @apply inline-flex h-[26px] shrink-0 items-stretch overflow-clip rounded-md bg-control text-ink tabular-nums;
+    @apply inline-flex h-[26px] shrink-0 items-stretch overflow-clip rounded-md bg-raised text-ink tabular-nums;
   }
 
   .shell-field > * + * {
@@ -86,7 +92,7 @@ body {
   }
 
   .inspector-field {
-    @apply grid h-6 min-w-0 grid-cols-[24px_minmax(0,1fr)_24px] items-center rounded-md bg-control;
+    @apply grid h-6 min-w-0 grid-cols-[24px_minmax(0,1fr)_24px] items-center rounded-md bg-raised;
   }
 
   .inspector-scrub {

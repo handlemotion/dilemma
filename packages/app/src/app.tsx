@@ -15,7 +15,9 @@ import {
   transformTools,
 } from './components/transform-tools.tsx'
 import {
+  DEFAULT_CURVE_TIMELINE_HEIGHT,
   DEFAULT_TIMELINE_HEIGHT,
+  MIN_CURVE_TIMELINE_HEIGHT,
   TRACK_HEIGHT,
   keyframeInDirection,
   timelineHeight,
@@ -73,9 +75,15 @@ export function App() {
     return doc.characters.find((character) => character.id === clip?.characterId)
   })
   const timelineExpanded = useUi((s) => s.expandedTimelineCharacterId === timelineCharacter?.id)
+  const timelineMode = useUi((s) => s.timelineMode)
   const jointCount = timelineCharacter?.skeleton.joints.length ?? 0
-  const timelineMin = DEFAULT_TIMELINE_HEIGHT + (timelineExpanded && jointCount ? TRACK_HEIGHT : 0)
-  const timelineSize = timelineHeight(jointCount, timelineExpanded, sizes.timeline)
+  const showCurves = timelineMode === 'curves' && jointCount > 0
+  const timelineMin = showCurves
+    ? MIN_CURVE_TIMELINE_HEIGHT
+    : DEFAULT_TIMELINE_HEIGHT + (timelineExpanded && jointCount ? TRACK_HEIGHT : 0)
+  const timelineSize = showCurves
+    ? Math.max(timelineMin, sizes.curves ?? DEFAULT_CURVE_TIMELINE_HEIGHT)
+    : timelineHeight(jointCount, timelineExpanded, sizes.timeline)
   const loading = useUi((s) => s.loading)
   const [dragging, setDragging] = useState(false)
 
@@ -165,7 +173,11 @@ export function App() {
       </SidePanel>
 
       <div className="relative col-span-full min-h-0 min-w-0">
-        <PanelDivider panel="timeline" label="Resize timeline" min={timelineMin} />
+        <PanelDivider
+          panel={showCurves ? 'curves' : 'timeline'}
+          label="Resize timeline"
+          min={timelineMin}
+        />
         <Timeline />
       </div>
       <StatusBar />
@@ -218,11 +230,11 @@ function PanelDivider({
   label,
   min,
 }: {
-  panel: DockSide | 'timeline'
+  panel: DockSide | 'timeline' | 'curves'
   label: string
   min: number
 }) {
-  const vertical = panel !== 'timeline'
+  const vertical = panel === 'left' || panel === 'right'
   const growsRight = panel === 'left'
   const drag = useRef<{ pointer: number; origin: number; size: number; moved: boolean } | null>(
     null,
@@ -325,13 +337,14 @@ function useShortcuts(run: (action: MenuAction) => void): void {
       target instanceof HTMLElement &&
       (target.isContentEditable ||
         target instanceof HTMLInputElement ||
+        target instanceof HTMLSelectElement ||
         target instanceof HTMLTextAreaElement)
     const onSpace = (e: KeyboardEvent) => {
       if (e.code !== 'Space' && e.key !== ' ') return
       if (
         e.target instanceof Element &&
         e.target.closest(
-          '[data-timeline-track], [data-timeline-footer], [role="combobox"], [role="listbox"], [role="menu"], [data-animation-tools], [data-panel-header], button[aria-expanded]',
+          '[data-timeline-track], [data-timeline-footer], [data-curve-timeline] button, select, [role="combobox"], [role="listbox"], [role="menu"], [data-animation-tools], [data-panel-header], button[aria-expanded]',
         )
       )
         return

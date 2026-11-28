@@ -5,6 +5,7 @@ import {
   deleteRotationKeys,
   deleteTransformKeys,
   removeCharacter,
+  setAxisCurves,
   setClipTiming,
   setLimbTargetKey,
   setRotationKey,
@@ -215,6 +216,50 @@ describe('migrate', () => {
     expect(editor.getState().doc).toEqual(doc)
     expect(editor.redo()).toBe(true)
     expect(editor.getState().doc.sceneTiming).toEqual(sceneTiming)
+  })
+
+  it('loads version-four quaternion animation and round trips independent curve edits', () => {
+    const source = {
+      ...clip('walk', 'a'),
+      tracks: [{ joint: 0, rotations: { frames: [0, 10], values: [0, 0, 0, 1, 0, 0, 1, 0] } }],
+    }
+    const migrated = migrate({
+      ...emptyDocument(),
+      version: 4,
+      characters: [character('a')],
+      clips: [source],
+    })
+    expect(migrated.version).toBe(5)
+    expect(migrated.clips).toEqual([source])
+
+    const editor = new Editor(migrated)
+    editor.run(
+      setAxisCurves('walk', 0, 'rotations', [
+        [],
+        [],
+        [
+          { frame: 2, value: 350, interpolation: 'bezier' },
+          { frame: 9, value: 450, interpolation: 'linear' },
+        ],
+      ]),
+    )
+    const authored = editor.getState().doc
+    expect(migrate(JSON.parse(JSON.stringify(authored)))).toEqual(authored)
+    expect(() => editor.run(setClipTiming('walk', { end: 8 }))).toThrow('include all keys')
+    editor.run(setRotationKey('walk', 0, 9, [0, 0, Math.SQRT1_2, Math.SQRT1_2]))
+    expect(editor.getState().doc.clips[0]?.tracks[0]?.rotations?.curves?.[2][1]?.value).toBeCloseTo(
+      450,
+    )
+    editor.run(deleteRotationKeys('walk', [0], 9, 9))
+    expect(
+      editor.getState().doc.clips[0]?.tracks[0]?.rotations?.curves?.[2].map(({ frame }) => frame),
+    ).toEqual([2])
+    editor.undo()
+    editor.undo()
+    editor.undo()
+    expect(editor.getState().doc).toEqual(migrated)
+    editor.redo()
+    expect(editor.getState().doc).toEqual(authored)
   })
 
   it('loads a version-two FK clip and round trips its new undoable IK keys', () => {

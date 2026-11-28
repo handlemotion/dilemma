@@ -15,6 +15,11 @@ export function AppMenuBar({ run }: { run(action: MenuAction): void }) {
   const playing = useUi((s) => s.playing)
   const loop = useUi((s) => s.loopPlayback)
   const range = useUi((s) => s.timelineRange)
+  const canDeleteKeys = useUi((state) =>
+    state.timelineMode === 'curves' && state.curveTarget
+      ? state.curveSelection.length > 0
+      : Boolean(range && range.rowId !== 'preview'),
+  )
   const hasCharacter = doc.characters.length > 0
   const fileDisabled = !bridge || Boolean(loading)
   const mac = bridge?.platform === 'darwin' || (!bridge && navigator.platform.startsWith('Mac'))
@@ -98,7 +103,7 @@ export function AppMenuBar({ run }: { run(action: MenuAction): void }) {
         <Command
           label="Delete Selected Keys"
           shortcut="Delete"
-          disabled={!range || range.rowId === 'preview'}
+          disabled={!canDeleteKeys}
           onClick={() => run('deleteKeys')}
         />
       </AppMenu>

@@ -1,11 +1,16 @@
 import {
   addClip,
+  axisCurves,
   deleteClipKeys,
   findCharacter,
+  keyFrames,
+  keyChannel,
+  setAxisCurves,
   setLimbTargetKey,
   setTransformKeys,
   TRANSFORM_CHANNELS,
   type Clip,
+  type AxisCurves,
   type JointKey,
   type JointRef,
   type TransformKey,
@@ -179,14 +184,14 @@ function keyDeletion() {
           ]
   const limb = range.rowId === 'character' || range.rowId === 'ik'
   const hasLimbKeys =
-    limb && clip.limb?.targets.frames.some((frame) => frame >= start && frame <= end)
+    limb && keyFrames(clip.limb?.targets).some((frame) => frame >= start && frame <= end)
   if (
     !hasLimbKeys &&
     !clip.tracks.some(
       (track) =>
         joints.includes(track.joint) &&
         TRANSFORM_CHANNELS.some((channel) =>
-          track[channel]?.frames.some((frame) => frame >= start && frame <= end),
+          keyFrames(track[channel]).some((frame) => frame >= start && frame <= end),
         ),
     )
   )
@@ -195,9 +200,27 @@ function keyDeletion() {
 }
 
 export function deleteKeys(): boolean {
+  const ui = useUi.getState()
+  if (ui.timelineMode === 'curves' && ui.curveTarget) {
+    const clip = activeClip()
+    const { clipId, joint, property } = ui.curveTarget
+    if (clip?.id !== clipId || !ui.curveSelection.length) return false
+    const source = axisCurves(keyChannel(clip, joint, property), property)
+    const curves = source.map((keys, axis) =>
+      keys.filter(
+        (key) =>
+          !ui.curveSelection.some((point) => point.axis === axis && point.frame === key.frame),
+      ),
+    ) as AxisCurves
+    if (curves.every((keys, axis) => keys.length === source[axis]?.length)) return false
+    ui.setPlaying(false)
+    if (ui.curveProperty !== property) ui.setCurveProperty(property)
+    editor.run(setAxisCurves(clipId, joint, property, curves, 'Delete curve keys'))
+    ui.setCurveSelection([])
+    return true
+  }
   const target = keyDeletion()
   if (!target) return false
-  const ui = useUi.getState()
   ui.setPlaying(false)
   editor.run(
     deleteClipKeys(target.clipId, target.joints, target.start, target.end, { limb: target.limb }),

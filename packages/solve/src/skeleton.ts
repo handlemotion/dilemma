@@ -1,4 +1,10 @@
-import type { Clip, KeyChannel, Skeleton } from '@dilemma/core'
+import {
+  curveHandles,
+  type Clip,
+  type CurveKey,
+  type KeyChannel,
+  type Skeleton,
+} from '@dilemma/core'
 
 /** Floats per joint in a local pose: translation (3), rotation quaternion xyzw (4), scale (3). */
 export const LOCAL_STRIDE = 10
@@ -32,10 +38,10 @@ export interface CompiledTrack {
   scales: CompiledChannel | null
 }
 
-export interface CompiledChannel {
-  frames: Int32Array
-  values: Float64Array
-}
+export const CURVE_STRIDE = 7
+export type CompiledChannel =
+  | { frames: Int32Array; values: Float64Array; curves?: never }
+  | { curves: [Float64Array, Float64Array, Float64Array] }
 
 export interface CompiledClip {
   start: number
@@ -103,12 +109,16 @@ export function compileClip(clip: Clip, jointCount: number): CompiledClip {
     }
   })
   const targets = compileChannel(clip.limb?.targets, 3)
-  const limb = clip.limb && targets?.frames.length ? { tip: clip.limb.tip, targets } : null
+  const limb = clip.limb && targets ? { tip: clip.limb.tip, targets } : null
   return { start: clip.start, end: clip.end, tracks, limb }
 }
 
 function compileChannel(channel: KeyChannel | undefined, width: number): CompiledChannel | null {
   if (!channel) return null
+  if (channel.curves) {
+    const [x, y, z] = channel.curves
+    return { curves: [compileCurve(x), compileCurve(y), compileCurve(z)] }
+  }
   const { frames, values } = channel
   for (let k = 0; k < frames.length; k++) {
     const frame = frames[k]!
@@ -116,5 +126,17 @@ function compileChannel(channel: KeyChannel | undefined, width: number): Compile
     if (k > 0 && frame <= frames[k - 1]!) throw new Error('Key frames must increase.')
   }
   if (values.length !== frames.length * width) throw new Error('Wrong number of key values.')
-  return { frames: Int32Array.from(frames), values: Float64Array.from(values) }
+  return frames.length
+    ? { frames: Int32Array.from(frames), values: Float64Array.from(values) }
+    : null
+}
+
+function compileCurve(keys: readonly CurveKey[]): Float64Array {
+  const data = new Float64Array(keys.length * CURVE_STRIDE)
+  keys.forEach((key, index) => {
+    const { inDx, inDy, outDx, outDy } = curveHandles(keys, index)
+    const mode = key.interpolation === 'constant' ? 0 : key.interpolation === 'linear' ? 1 : 2
+    data.set([key.frame, key.value, mode, inDx, inDy, outDx, outDy], index * CURVE_STRIDE)
+  })
+  return data
 }

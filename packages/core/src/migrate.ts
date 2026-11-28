@@ -5,6 +5,7 @@ import {
   validSceneTiming,
   type DilemmaDocument,
 } from './document.ts'
+import { validAxisCurves } from './curves.ts'
 
 /**
  * One migration per version. `migrations[n]` upgrades a version-n document to
@@ -36,6 +37,8 @@ const migrations: Record<number, (doc: Record<string, unknown>) => Record<string
   // Version 3 adds an optional IK target track. Existing clips are FK.
   2: (doc) => doc,
   3: (doc) => ({ ...doc, sceneTiming: { ...DEFAULT_SCENE_TIMING } }),
+  // Version 5 adds independently timed axis curves. Sampled channels keep their interpolation.
+  4: (doc) => doc,
 }
 
 export class DocumentVersionError extends Error {}
@@ -103,6 +106,15 @@ function numbers(value: unknown, length: number): void {
 
 function validateChannel(raw: unknown, width: number, start: number, end: number): number {
   const channel = object(raw)
+  if (channel['curves'] !== undefined) {
+    if (
+      channel['frames'] !== undefined ||
+      channel['values'] !== undefined ||
+      !validAxisCurves(channel['curves'], start, end)
+    )
+      invalid()
+    return 1
+  }
   const frames = array(channel['frames'])
   let previous = -Infinity
   for (const value of frames) {

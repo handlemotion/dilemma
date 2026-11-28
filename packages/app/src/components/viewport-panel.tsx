@@ -1,4 +1,4 @@
-import type { JointRef } from '@dilemma/core'
+import { setAxisCurves, type JointRef } from '@dilemma/core'
 import { Viewport } from '@dilemma/view'
 import { useEffect, useRef } from 'react'
 import { beginTransform, selectJoints } from '../animation.ts'
@@ -92,6 +92,15 @@ export function ViewportPanel() {
       viewport.setState(state)
     })
     const offUi = useUi.subscribe((ui, prev) => {
+      if (ui.curveDraft !== prev.curveDraft) {
+        const state = editor.getState()
+        const draft = ui.curveDraft
+        const doc = draft
+          ? setAxisCurves(draft.clipId, draft.joint, draft.property, draft.curves).apply(state.doc)
+              .doc
+          : state.doc
+        viewport.setState({ ...state, doc })
+      }
       if (ui.viewportSettings !== prev.viewportSettings) viewport.setDisplay(ui.viewportSettings)
       if (ui.assets !== prev.assets) viewport.setAssets(ui.assets)
       if (ui.transformMode !== prev.transformMode) viewport.setTransformMode(ui.transformMode)

@@ -1,4 +1,4 @@
-import { findCharacter, selectedControl, type EditorState } from '@dilemma/core'
+import { findCharacter, keyFrames, selectedControl, type EditorState } from '@dilemma/core'
 import { compileClip, compileSkeleton, createPose, solvePose, WORLD_STRIDE } from '@dilemma/solve'
 import type { MotionTrailData, TransformMode } from '@dilemma/view'
 import { resolveWorkArea, useUi } from './ui-store.ts'
@@ -24,23 +24,23 @@ export function sampleMotionTrail(
     mode === 'ik' ? selectedControl(character.skeleton, character.rig, joint) : undefined
   const fk = clip.tracks.find((track) => track.joint === joint.joint)
   const keys = new Set<number>()
-  for (const frames of [
-    fk?.translations?.frames,
-    fk?.rotations?.frames,
-    fk?.scales?.frames,
-    control ? clip.controls?.[control]?.frames : undefined,
-    clip.limb?.tip === joint.joint ? clip.limb.targets.frames : undefined,
+  for (const channel of [
+    fk?.translations,
+    fk?.rotations,
+    fk?.scales,
+    control ? clip.controls?.[control] : undefined,
+    clip.limb?.tip === joint.joint ? clip.limb.targets : undefined,
   ]) {
-    for (const frame of frames ?? []) {
+    for (const frame of keyFrames(channel)) {
       if (frame >= start && frame <= end) keys.add(frame)
     }
   }
 
   // Bound solver work for long clips while retaining the endpoints and sampled keys.
-  const keyFrames = [...keys].toSorted((a, b) => a - b)
-  const keyStep = Math.max(1, Math.ceil(keyFrames.length / 120))
+  const sortedKeys = [...keys].toSorted((a, b) => a - b)
+  const keyStep = Math.max(1, Math.ceil(sortedKeys.length / 120))
   const marked = new Set(
-    keyFrames.filter((_, index) => index % keyStep === 0 || index === keyFrames.length - 1),
+    sortedKeys.filter((_, index) => index % keyStep === 0 || index === sortedKeys.length - 1),
   )
   const samples = new Set([end, ...marked])
   const step = Math.max(1, Math.ceil((end - start) / 240))

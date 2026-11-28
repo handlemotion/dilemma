@@ -75,6 +75,84 @@ describe('solvePose', () => {
     expect(Array.from(b.world)).toEqual(Array.from(a.world))
   })
 
+  it('samples independent stepped, linear and weighted Bézier curves in a solved pose', () => {
+    const skeleton = compileSkeleton(chain(3))
+    const clip = compileClip(
+      {
+        id: 'curves',
+        name: 'Curves',
+        characterId: 'x',
+        fps: 30,
+        start: 0,
+        end: 10,
+        tracks: [
+          {
+            joint: 0,
+            translations: {
+              curves: [
+                [
+                  {
+                    frame: 0,
+                    value: 0,
+                    interpolation: 'bezier',
+                    tangent: {
+                      mode: 'free',
+                      inDx: 0,
+                      inDy: 0,
+                      outDx: 0,
+                      outDy: 0,
+                    },
+                  },
+                  {
+                    frame: 8,
+                    value: 8,
+                    interpolation: 'linear',
+                    tangent: {
+                      mode: 'free',
+                      inDx: -8,
+                      inDy: 0,
+                      outDx: 0,
+                      outDy: 0,
+                    },
+                  },
+                ],
+                [
+                  { frame: 2, value: 3, interpolation: 'constant' },
+                  { frame: 6, value: 4, interpolation: 'linear' },
+                ],
+                [],
+              ],
+            },
+            rotations: {
+              curves: [
+                [],
+                [],
+                [
+                  { frame: 0, value: 0, interpolation: 'linear' },
+                  { frame: 10, value: 180, interpolation: 'linear' },
+                ],
+              ],
+            },
+          },
+        ],
+      },
+      3,
+    )
+    const pose = createPose(skeleton)
+    // The weighted segment has cubic time controls [0, 0, 0, 8].
+    // At frame 1 its parameter is 0.5, and the value controls [0, 0, 8, 8] give 4.
+    solvePose(skeleton, clip, 1, pose)
+    expect(pose.local[0]).toBeCloseTo(4, 5)
+    expect(pose.local[1]).toBe(3)
+    solvePose(skeleton, clip, 5, pose)
+    expect(pose.local[1]).toBe(3)
+    expect(pose.local[2]).toBe(0)
+    expect(pose.local[5]).toBeCloseTo(s, 12)
+    expect(pose.local[6]).toBeCloseTo(s, 12)
+    solvePose(skeleton, clip, 6, pose)
+    expect(pose.local[1]).toBe(4)
+  })
+
   it('pins the interpolated IK target under a rotated, nonuniformly scaled ancestor', () => {
     const source = chain(5)
     source.joints[0]!.rest.scale = [2, 3, 0.5]

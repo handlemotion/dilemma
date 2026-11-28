@@ -19,8 +19,10 @@ import { StatusBar } from './components/status-bar.tsx'
 import { Timeline } from './components/timeline.tsx'
 import { MainToolbar, transformTools } from './components/transform-tools.tsx'
 import {
+  DEFAULT_CURVE_TIMELINE_HEIGHT,
   DEFAULT_TIMELINE_HEIGHT,
   TIMELINE_HEADER_HEIGHT,
+  MIN_CURVE_TIMELINE_HEIGHT,
   TRACK_HEIGHT,
   keyframeInDirection,
   timelineHeight,
@@ -86,13 +88,18 @@ export function App() {
     return doc.characters.find((character) => character.id === clip?.characterId)
   })
   const timelineExpanded = useUi((s) => s.expandedTimelineCharacterId === timelineCharacter?.id)
+  const timelineMode = useUi((s) => s.timelineMode)
   const jointCount = timelineCharacter?.skeleton.joints.length ?? 0
-  const timelineMin = timelineCharacter
+  const showCurves = timelineMode === 'curves' && jointCount > 0
+  const keyTimelineMin = timelineCharacter
     ? DEFAULT_TIMELINE_HEIGHT + (timelineExpanded && jointCount ? TRACK_HEIGHT : 0)
     : TIMELINE_HEADER_HEIGHT + 1
-  const timelineSize = timelineCharacter
-    ? timelineHeight(jointCount, timelineExpanded, sizes.timeline)
-    : timelineMin
+  const timelineMin = showCurves ? MIN_CURVE_TIMELINE_HEIGHT : keyTimelineMin
+  const timelineSize = showCurves
+    ? Math.max(timelineMin, sizes.curves ?? DEFAULT_CURVE_TIMELINE_HEIGHT)
+    : timelineCharacter
+      ? timelineHeight(jointCount, timelineExpanded, sizes.timeline)
+      : keyTimelineMin
   const loading = useUi((s) => s.loading)
   const [dragging, setDragging] = useState(false)
 
@@ -189,7 +196,11 @@ export function App() {
       <AnimationToolbar />
       <div className="relative col-span-full row-start-5 min-h-0 min-w-0">
         {timelineCharacter && (
-          <PanelDivider panel="timeline" label="Resize timeline" min={timelineMin} />
+          <PanelDivider
+            panel={showCurves ? 'curves' : 'timeline'}
+            label="Resize timeline"
+            min={timelineMin}
+          />
         )}
         <Timeline />
       </div>
@@ -238,12 +249,12 @@ function PanelDivider({
   min,
   growsRight = false,
 }: {
-  panel: DockSide | 'timeline'
+  panel: DockSide | 'timeline' | 'curves'
   label: string
   min: number
   growsRight?: boolean
 }) {
-  const vertical = panel !== 'timeline'
+  const vertical = panel === 'left' || panel === 'right'
   const drag = useRef<{ pointer: number; origin: number; size: number; moved: boolean } | null>(
     null,
   )
@@ -359,7 +370,7 @@ function useShortcuts(run: (action: MenuAction) => void): void {
       if (
         e.target instanceof Element &&
         e.target.closest(
-          '[data-timeline-track], [data-timeline-footer], [role="combobox"], [role="listbox"], [role="menu"], [data-animation-tools], [data-panel-header], button[aria-expanded]',
+          '[data-timeline-track], [data-timeline-footer], [data-curve-timeline] button, select, [role="combobox"], [role="listbox"], [role="menu"], [data-animation-tools], [data-panel-header], button[aria-expanded]',
         )
       )
         return

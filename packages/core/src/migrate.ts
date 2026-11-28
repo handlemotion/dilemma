@@ -8,6 +8,7 @@ import {
   type Skeleton,
 } from './document.ts'
 import { CONTROL_IDS, controlKind, EFFECTORS, validRigMapping, type RigMapping } from './rig.ts'
+import { validAxisCurves } from './curves.ts'
 
 /**
  * One migration per version. `migrations[n]` upgrades a version-n document to
@@ -43,6 +44,8 @@ const migrations: Record<number, (doc: Record<string, unknown>) => Record<string
   4: (doc) => doc,
   // Version 6 adds optional contact clips. Whole-clip pins retain their behavior.
   5: (doc) => doc,
+  // Version 7 adds independently timed axis curves. Sampled channels keep their interpolation.
+  6: (doc) => doc,
 }
 
 export class DocumentVersionError extends Error {}
@@ -108,8 +111,24 @@ function numbers(value: unknown, length: number): void {
   if (values.length !== length || values.some((number) => !Number.isFinite(number))) invalid()
 }
 
-function validateChannel(raw: unknown, width: number, start: number, end: number): number {
+function validateChannel(
+  raw: unknown,
+  width: number,
+  start: number,
+  end: number,
+  allowCurves = true,
+): number {
   const channel = object(raw)
+  if (channel['curves'] !== undefined) {
+    if (
+      !allowCurves ||
+      channel['frames'] !== undefined ||
+      channel['values'] !== undefined ||
+      !validAxisCurves(channel['curves'], start, end)
+    )
+      invalid()
+    return 1
+  }
   const frames = array(channel['frames'])
   let previous = -Infinity
   for (const value of frames) {
@@ -194,7 +213,7 @@ function validateDocument(doc: Record<string, unknown>): void {
         const control = CONTROL_IDS.find((entry) => entry === name)
         if (
           !control ||
-          !validateChannel(channel, controlKind(control) === 'rotation' ? 4 : 3, start, end)
+          !validateChannel(channel, controlKind(control) === 'rotation' ? 4 : 3, start, end, false)
         )
           invalid()
       }

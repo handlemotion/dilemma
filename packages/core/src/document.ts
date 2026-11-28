@@ -7,7 +7,7 @@
 import type { Contact } from './contact.ts'
 import type { ControlId, Effector, RigMapping } from './rig.ts'
 
-export const DOCUMENT_VERSION = 6
+export const DOCUMENT_VERSION = 7
 
 export type Vec3 = [number, number, number]
 export type Quat = [number, number, number, number]
@@ -40,10 +40,42 @@ export interface Character {
 }
 
 /** Integer frames in ascending order, with one flattened value per frame. */
-export interface KeyChannel {
+export interface SampledKeyChannel {
   frames: number[]
   values: number[]
+  curves?: never
 }
+
+export const CURVE_INTERPOLATIONS = ['constant', 'linear', 'bezier'] as const
+export type CurveInterpolation = (typeof CURVE_INTERPOLATIONS)[number]
+
+export interface CurveTangent {
+  mode: 'aligned' | 'free'
+  inDx: number
+  inDy: number
+  outDx: number
+  outDy: number
+}
+
+export interface CurveKey {
+  frame: number
+  value: number
+  /** Interpolation of the segment leaving this key. An omitted tangent is automatic. */
+  interpolation: CurveInterpolation
+  tangent?: CurveTangent
+}
+
+export type AxisCurves = [CurveKey[], CurveKey[], CurveKey[]]
+
+export interface CurveKeyChannel {
+  /** X, Y and Z can be keyed independently. Authored rotation curves use XYZ degrees. */
+  curves: AxisCurves
+  frames?: never
+  values?: never
+}
+
+export type KeyChannel = SampledKeyChannel | CurveKeyChannel
+export type KeyProperty = TransformChannel | 'ikTarget'
 
 export const TRANSFORM_CHANNELS = ['translations', 'rotations', 'scales'] as const
 export type TransformChannel = (typeof TRANSFORM_CHANNELS)[number]
@@ -89,7 +121,7 @@ export interface Clip {
   end: number
   tracks: JointTrack[]
   limb?: LimbTrack
-  controls?: Partial<Record<ControlId, KeyChannel>>
+  controls?: Partial<Record<ControlId, SampledKeyChannel>>
   pins?: Partial<Record<Effector, EffectorPin>>
   contacts?: Contact[]
 }

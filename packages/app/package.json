@@ -85,6 +85,10 @@
       {
         "from": "node_modules/@pierre/trees/NOTICE.md",
         "to": "licenses/pierre-trees/NOTICE.md"
+      },
+      {
+        "from": "../../licenses/real-timeline-editor.txt",
+        "to": "licenses/real-timeline-editor.txt"
       }
     ]
   },

@@ -19,6 +19,12 @@ editor.subscribe((state) => {
         ?.contacts?.some(({ id }) => id === ui.selectedContact?.id))
   )
     ui.setSelectedContact(null)
+  if (
+    ui.curveDraft &&
+    (state.doc !== previous.doc || state.playhead.clipId !== previous.playhead.clipId)
+  ) {
+    ui.setCurveDraft(null)
+  }
   if (state.doc.sceneTiming !== previous.doc.sceneTiming) {
     const { start, end } = state.doc.sceneTiming
     ui.setPreviewFrame(Math.min(end, Math.max(start, ui.previewFrame)))

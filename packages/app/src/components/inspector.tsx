@@ -1,5 +1,8 @@
 import {
+  curveValue,
   findCharacter,
+  keyFrames,
+  rotationAxes,
   type Clip,
   type Joint,
   type JointRef,
@@ -185,9 +188,18 @@ function JointProperties({
             key.channel === channel,
         )?.key
         const key = pendingKey?.channel === channel ? pendingKey : keys[channel]
-        const values = toAxes(key)
+        const channelData = track?.[channel]
+        const values =
+          channel === 'rotations' && key.channel === 'rotations' && channelData?.curves
+            ? rotationAxes(
+                key.value,
+                channelData.curves.map(
+                  (axisKeys, index) => curveValue(axisKeys, frame) ?? toAxes(key)[index]!,
+                ) as Vec3,
+              )
+            : toAxes(key)
         const shown = preview?.channel === channel ? toAxes(preview) : values
-        const keyed = track?.[channel]?.frames.includes(frame) ?? false
+        const keyed = keyFrames(channelData).includes(frame)
 
         return (
           <section key={channel} aria-label={label} className="border-t border-line p-1">

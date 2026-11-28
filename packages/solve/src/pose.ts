@@ -1,10 +1,11 @@
-import { CONTROL_IDS, EFFECTORS, type PoseKey } from '@dilemma/core'
+import { bezierValue, CONTROL_IDS, EFFECTORS, rotationAxis, type PoseKey } from '@dilemma/core'
 import { sampleContact, blendRotation } from './contacts.ts'
 import { solveBody } from './body.ts'
 import { applyLimb, canSolveLimb, multiplyQuaternion } from './limb.ts'
 import {
   LOCAL_STRIDE,
   WORLD_STRIDE,
+  CURVE_STRIDE,
   type CompiledClip,
   type CompiledSkeleton,
   type CompiledChannel,
@@ -74,6 +75,8 @@ export function solvePose(
     pose.ik.target.set(preview.ik.target)
   } else if (clip?.limb) {
     pose.ik.tip = clip.limb.tip
+    const o = pose.ik.tip * WORLD_STRIDE + 12
+    for (let i = 0; i < 3; i++) pose.ik.target[i] = pose.world[o + i]!
     sampleChannel(clip.limb.targets, frame, pose.ik.target, 0, lerp3)
   }
   const legacyControl = pose.ik.tip < 0 ? -1 : skeleton.controls.indexOf(pose.ik.tip, 3) - 3
@@ -271,12 +274,41 @@ export function sampleClip(clip: CompiledClip, frame: number, local: Float64Arra
 }
 
 function sampleChannel(
-  { frames, values }: CompiledChannel,
+  channel: CompiledChannel,
   frame: number,
   local: Float64Array,
   offset: number,
   interpolate: typeof lerp3,
 ): void {
+  if (channel.curves) {
+    const [x, y, z] = channel.curves
+    if (interpolate === slerp) {
+      const qx = local[offset]!
+      const qy = local[offset + 1]!
+      const qz = local[offset + 2]!
+      const qw = local[offset + 3]!
+      const halfRadians = Math.PI / 360
+      const ax = (sampleCurve(x, frame) ?? rotationAxis(qx, qy, qz, qw, 0)) * halfRadians
+      const ay = (sampleCurve(y, frame) ?? rotationAxis(qx, qy, qz, qw, 1)) * halfRadians
+      const az = (sampleCurve(z, frame) ?? rotationAxis(qx, qy, qz, qw, 2)) * halfRadians
+      const sx = Math.sin(ax)
+      const sy = Math.sin(ay)
+      const sz = Math.sin(az)
+      const cx = Math.cos(ax)
+      const cy = Math.cos(ay)
+      const cz = Math.cos(az)
+      local[offset] = sx * cy * cz + cx * sy * sz
+      local[offset + 1] = cx * sy * cz - sx * cy * sz
+      local[offset + 2] = cx * cy * sz + sx * sy * cz
+      local[offset + 3] = cx * cy * cz - sx * sy * sz
+    } else {
+      local[offset] = sampleCurve(x, frame) ?? local[offset]!
+      local[offset + 1] = sampleCurve(y, frame) ?? local[offset + 1]!
+      local[offset + 2] = sampleCurve(z, frame) ?? local[offset + 2]!
+    }
+    return
+  }
+  const { frames, values } = channel
   const n = frames.length
   if (n === 0) return
   // Find the key span [a, b] holding the frame, clamped at both ends.
@@ -300,6 +332,35 @@ function sampleChannel(
     t = (frame - frames[a]!) / (frames[b]! - frames[a]!)
   }
   interpolate(values, a, b, t, local, offset)
+}
+
+function sampleCurve(data: Float64Array, frame: number): number | undefined {
+  if (!data.length || frame <= data[0]!) return data[1]
+  let lo = 0
+  let hi = data.length / CURVE_STRIDE
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1
+    if (data[mid * CURVE_STRIDE]! <= frame) lo = mid
+    else hi = mid
+  }
+  const a = lo * CURVE_STRIDE
+  const b = hi * CURVE_STRIDE
+  const start = data[a + 1]!
+  const mode = data[a + 2]!
+  if (b === data.length || frame === data[a] || mode === 0) return start
+  const end = data[b + 1]!
+  const span = data[b]! - data[a]!
+  const t = (frame - data[a]!) / span
+  if (mode === 1) return start + (end - start) * t
+  return bezierValue(
+    t,
+    data[a + 5]! / span,
+    data[b + 3]! / span,
+    start,
+    data[a + 6]!,
+    data[b + 4]!,
+    end,
+  )
 }
 
 function lerp3(v: Float64Array, a: number, b: number, t: number, out: Float64Array, o: number) {

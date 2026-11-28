@@ -34,6 +34,10 @@ Runtime dependencies have to be MIT, Apache-2.0, BSD, MPL-2.0, GPL-3.0 or AGPL-3
 | electron         | MIT        | the desktop shell                   |
 | tailwindcss      | MIT        | styling, at build time              |
 
+## Curve editor
+
+The graph widget and tangent evaluation in `packages/app/src/components/curve-graph.ts` and `packages/core/src/curves.ts` adapt parts of [real-timeline-editor](https://github.com/v1vendi/real-timeline-editor/tree/a85c5a81f0e03d13414ee60fd98fb3cd37b6834a) by Illia Komsa, copyright (c) 2026, under the MIT License. Dilemma uses its own frame model, graph theme and command history. The [full license](licenses/real-timeline-editor.txt) ships with the desktop package.
+
 ## Test characters
 
 The skinned characters the import tests use come from the Khronos glTF Sample Assets and aren't in this repository. `pnpm fetch-assets` downloads them into `fixtures/khronos/`, each with its own LICENSE.md.

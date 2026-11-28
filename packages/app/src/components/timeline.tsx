@@ -10,8 +10,10 @@ import {
 } from 'react'
 import { selectJoints } from '../animation.ts'
 import { editor, useEditorState } from '../editor.ts'
+import { ActionIcon } from '../icons/action.tsx'
 import { Icon } from '../icons/central.tsx'
 import { resolveWorkArea, useUi, type TimelineRange } from '../ui-store.ts'
+import { CurveTimeline } from './curve-timeline.tsx'
 import {
   PREVIEW_ROW,
   TIMELINE_HEADER_HEIGHT as HEADER,
@@ -55,6 +57,9 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
   const character = clip ? findCharacter(doc, clip.characterId) : undefined
   const expanded = useUi((s) => s.expandedTimelineCharacterId === character?.id)
   const activeRow = useUi((s) => s.activeTimelineRow)
+  const timelineMode = useUi((s) => s.timelineMode)
+  const showCurves = timelineMode === 'curves' && clip && character?.skeleton.joints.length
+  const timelineBody = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const timecodeField = useRef<HTMLInputElement>(null)
   const trackList = useRef<HTMLDivElement>(null)
@@ -155,14 +160,14 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
     return () => {
       paint.current = null
     }
-  }, [start, end, frame, rows, selectedJoints, range, workStart, workEnd])
+  }, [start, end, frame, rows, selectedJoints, range, workStart, workEnd, showCurves])
 
   useEffect(() => {
     const redraw = () => paint.current?.()
     const observer = new ResizeObserver(redraw)
     if (canvas.current) observer.observe(canvas.current)
     return () => observer.disconnect()
-  }, [])
+  }, [showCurves])
 
   function seek(value: number) {
     setPlaying(false)
@@ -260,77 +265,134 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
         : ` ${rangeRow.name || 'Preview'} range, frames ${Math.min(range.anchor, range.edge)} to ${Math.max(range.anchor, range.edge)}.`
       : ''
 
+  const controls = (
+    <div
+      role="group"
+      aria-label="Timeline controls"
+      className={`flex shrink-0 items-center gap-2 p-1 ${character ? 'border-b border-line' : ''}`}
+      style={{ height: HEADER }}
+    >
+      <input
+        ref={timecodeField}
+        type="text"
+        defaultValue={timecode}
+        autoComplete="off"
+        spellCheck={false}
+        title={`Frame ${frame} of ${end}`}
+        aria-label="Current time"
+        aria-description="Enter a frame number, seconds like 1s, or a timecode like 00:01:00."
+        className="shrink-0 rounded-md px-2 py-1 text-center font-mono tabular-nums text-ink outline-none select-text ring-muted ring-inset hover:bg-control focus:bg-raised focus-visible:ring-1 group-has-[canvas:focus-visible]/timeline:ring-1"
+        style={{ width: `calc(${timecode.length}ch + 1rem)` }}
+        onFocus={(event) => {
+          setPlaying(false)
+          event.currentTarget.select()
+        }}
+        onChange={(event) => event.currentTarget.setCustomValidity('')}
+        onBlur={(event) => {
+          const field = event.currentTarget
+          const enteredFrame = parseTimelineTime(field.value, fps)
+          const next = enteredFrame === undefined ? frame : clamp(enteredFrame)
+          field.setCustomValidity('')
+          field.value = formatTimelineTime(next, fps)
+          if (next !== frame) seek(next)
+        }}
+        onKeyDown={(event) => {
+          const field = event.currentTarget
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            if (parseTimelineTime(field.value, fps) === undefined) {
+              field.setCustomValidity('Enter a frame like 24 or a time like 00:01:00.')
+              field.reportValidity()
+              return
+            }
+          } else if (event.key === 'Escape') {
+            event.preventDefault()
+            field.value = timecode
+          } else {
+            return
+          }
+          const surface = canvas.current ?? timelineBody.current?.querySelector('canvas')
+          surface?.focus({ preventScroll: true })
+        }}
+      />
+      <div role="group" aria-label="Playback" className="flex items-center gap-1.5">
+        <TransportButton label="First frame" disabled={frame === start} onClick={() => seek(start)}>
+          <Icon name="skip" className="-scale-x-100" />
+        </TransportButton>
+        <TransportButton
+          label={playing ? 'Pause' : 'Play'}
+          shortcut="Space"
+          onClick={() => setPlaying(!playing)}
+        >
+          <Icon name={playing ? 'pause' : 'play'} />
+        </TransportButton>
+        <TransportButton label="Last frame" disabled={frame === end} onClick={() => seek(end)}>
+          <Icon name="skip" />
+        </TransportButton>
+      </div>
+      <div
+        role="group"
+        aria-label="Timeline view"
+        className="flex items-center gap-0.5"
+        data-action-group="workspace"
+        data-timeline-track
+      >
+        {(['keys', 'curves'] as const).map((mode) => {
+          const active = mode === (showCurves ? 'curves' : 'keys')
+          const label = mode === 'keys' ? 'Keys' : 'Curves'
+          return (
+            <button
+              key={mode}
+              type="button"
+              aria-label={label}
+              aria-pressed={active}
+              title={label}
+              disabled={mode === 'curves' && (!clip || !character?.skeleton.joints.length)}
+              className="shell-icon shell-toggle focus-visible:outline-primary"
+              onClick={() => {
+                if (!active) useUi.getState().setTimelineMode(mode)
+              }}
+            >
+              <ActionIcon name={mode === 'keys' ? 'keysView' : 'curvesView'} />
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+
+  if (showCurves) {
+    const joint =
+      lead?.joint ??
+      (activeRow?.clipId === clip.id && activeRow.rowId === 'ik' ? clip.limb?.tip : undefined) ??
+      clip.tracks.find((item) => character.skeleton.joints[item.joint])?.joint ??
+      clip.limb?.tip ??
+      0
+    return (
+      <div
+        ref={timelineBody}
+        className="group/timeline grid h-full grid-cols-[max-content_minmax(0,1fr)] overflow-hidden border-t border-line bg-panel"
+        data-curve-timeline
+      >
+        <CurveTimeline
+          clip={clip}
+          character={character}
+          joint={joint}
+          frame={frame}
+          workStart={workStart}
+          workEnd={workEnd}
+          seek={seek}
+          controls={controls}
+          clipPicker={doc.clips.length > 1 && <ClipSelect clips={doc.clips} value={clipId} />}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="group/timeline grid h-full grid-cols-[max-content_minmax(0,1fr)] overflow-hidden border-t border-line bg-panel">
       <div className="flex min-h-0 min-w-0 flex-col border-r border-line">
-        <div
-          role="group"
-          aria-label="Timeline controls"
-          className={`flex shrink-0 items-center gap-2 p-1 ${character ? 'border-b border-line' : ''}`}
-          style={{ height: HEADER }}
-        >
-          <input
-            ref={timecodeField}
-            type="text"
-            defaultValue={timecode}
-            autoComplete="off"
-            spellCheck={false}
-            title={`Frame ${frame} of ${end}`}
-            aria-label="Current time"
-            aria-description="Enter a frame number, seconds like 1s, or a timecode like 00:01:00."
-            className="shrink-0 rounded-md px-2 py-1 text-center font-mono tabular-nums text-ink outline-none select-text ring-muted ring-inset hover:bg-control focus:bg-raised focus-visible:ring-1 group-has-[canvas:focus-visible]/timeline:ring-1"
-            style={{ width: `calc(${timecode.length}ch + 1rem)` }}
-            onFocus={(event) => {
-              setPlaying(false)
-              event.currentTarget.select()
-            }}
-            onChange={(event) => event.currentTarget.setCustomValidity('')}
-            onBlur={(event) => {
-              const field = event.currentTarget
-              const enteredFrame = parseTimelineTime(field.value, fps)
-              const next = enteredFrame === undefined ? frame : clamp(enteredFrame)
-              field.setCustomValidity('')
-              field.value = formatTimelineTime(next, fps)
-              if (next !== frame) seek(next)
-            }}
-            onKeyDown={(event) => {
-              const field = event.currentTarget
-              if (event.key === 'Enter') {
-                event.preventDefault()
-                if (parseTimelineTime(field.value, fps) === undefined) {
-                  field.setCustomValidity('Enter a frame like 24 or a time like 00:01:00.')
-                  field.reportValidity()
-                  return
-                }
-              } else if (event.key === 'Escape') {
-                event.preventDefault()
-                field.value = timecode
-              } else {
-                return
-              }
-              canvas.current?.focus({ preventScroll: true })
-            }}
-          />
-          <div role="group" aria-label="Playback" className="flex items-center gap-1.5">
-            <TransportButton
-              label="First frame"
-              disabled={frame === start}
-              onClick={() => seek(start)}
-            >
-              <Icon name="skip" className="-scale-x-100" />
-            </TransportButton>
-            <TransportButton
-              label={playing ? 'Pause' : 'Play'}
-              shortcut="Space"
-              onClick={() => setPlaying(!playing)}
-            >
-              <Icon name={playing ? 'pause' : 'play'} />
-            </TransportButton>
-            <TransportButton label="Last frame" disabled={frame === end} onClick={() => seek(end)}>
-              <Icon name="skip" />
-            </TransportButton>
-          </div>
-        </div>
+        {controls}
         <div
           ref={trackList}
           hidden={!character}
@@ -386,6 +448,7 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
                     title={row.name}
                     onClick={() => {
                       if (!character) return
+                      if (row.id === 'ik') useUi.getState().setCurveProperty('ikTarget')
                       activateRow(row.id)
                       if (joint === null) return
                       selectJoints([

@@ -7,6 +7,7 @@ import {
   type Skeleton,
 } from './document.ts'
 import { CONTROL_IDS, controlKind, EFFECTORS, validRigMapping, type RigMapping } from './rig.ts'
+import { validAxisCurves } from './curves.ts'
 
 /**
  * One migration per version. `migrations[n]` upgrades a version-n document to
@@ -38,7 +39,7 @@ const migrations: Record<number, (doc: Record<string, unknown>) => Record<string
   // Version 3 adds an optional IK target track. Existing clips are FK.
   2: (doc) => doc,
   3: (doc) => ({ ...doc, sceneTiming: { ...DEFAULT_SCENE_TIMING } }),
-  // Version 5 adds optional rig mappings, control tracks and pins.
+  // Version 5 adds rig mappings, control tracks, pins, and independent axis curves.
   4: (doc) => doc,
 }
 
@@ -105,8 +106,24 @@ function numbers(value: unknown, length: number): void {
   if (values.length !== length || values.some((number) => !Number.isFinite(number))) invalid()
 }
 
-function validateChannel(raw: unknown, width: number, start: number, end: number): number {
+function validateChannel(
+  raw: unknown,
+  width: number,
+  start: number,
+  end: number,
+  allowCurves = true,
+): number {
   const channel = object(raw)
+  if (channel['curves'] !== undefined) {
+    if (
+      !allowCurves ||
+      channel['frames'] !== undefined ||
+      channel['values'] !== undefined ||
+      !validAxisCurves(channel['curves'], start, end)
+    )
+      invalid()
+    return 1
+  }
   const frames = array(channel['frames'])
   let previous = -Infinity
   for (const value of frames) {
@@ -185,7 +202,7 @@ function validateDocument(doc: Record<string, unknown>): void {
         const control = CONTROL_IDS.find((entry) => entry === name)
         if (
           !control ||
-          !validateChannel(channel, controlKind(control) === 'rotation' ? 4 : 3, start, end)
+          !validateChannel(channel, controlKind(control) === 'rotation' ? 4 : 3, start, end, false)
         )
           invalid()
       }

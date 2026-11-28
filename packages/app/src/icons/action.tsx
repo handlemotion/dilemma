@@ -75,6 +75,33 @@ const glyphs = {
       <path d="M13 6h4m-2-2v4" />
     </>
   ),
+  keysView: (
+    <>
+      <path d="M3 5.5h14M3 14.5h14" />
+      <path
+        d="m7 5.5 2.5-2.5 2.5 2.5L9.5 8 7 5.5Zm-2 9L7.5 12l2.5 2.5L7.5 17 5 14.5Z"
+        fill="currentColor"
+        stroke="none"
+      />
+    </>
+  ),
+  curvesView: (
+    <>
+      <path d="M3.5 3v13.5H17M6.5 13.5c4.5 0 3.5-8 9-8" />
+      <path
+        d="m5 13.5 1.5-1.5L8 13.5 6.5 15 5 13.5ZM14 5.5 15.5 4 17 5.5 15.5 7 14 5.5Z"
+        fill="currentColor"
+        stroke="none"
+      />
+    </>
+  ),
+  deleteKey: (
+    <>
+      <path d="m7 5.5 4.5 4.5L7 14.5 2.5 10 7 5.5Z" fill="currentColor" stroke="none" />
+      <path d="M13 6h4" />
+    </>
+  ),
+  fitCurves: <path d="M3 7V3h4m6 0h4v4m0 6v4h-4m-6 0H3v-4m3.5-.5c3.5 0 3.5-5 7-5" />,
   resetPosition: (
     <>
       <path d="M3.75 6V3.75H6m8 0h2.25V6m0 8v2.25H14m-8 0H3.75V14" />

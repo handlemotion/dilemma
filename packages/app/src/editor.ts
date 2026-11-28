@@ -11,6 +11,12 @@ editor.subscribe((state) => {
   if (ui.rigSetup && !state.doc.characters.some(({ id }) => id === ui.rigSetup?.characterId)) {
     useUi.setState({ rigSetup: null })
   }
+  if (
+    ui.curveDraft &&
+    (state.doc !== previous.doc || state.playhead.clipId !== previous.playhead.clipId)
+  ) {
+    ui.setCurveDraft(null)
+  }
   if (state.doc.sceneTiming !== previous.doc.sceneTiming) {
     const { start, end } = state.doc.sceneTiming
     ui.setPreviewFrame(Math.min(end, Math.max(start, ui.previewFrame)))

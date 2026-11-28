@@ -1,6 +1,10 @@
 import {
   DEFAULT_SCENE_TIMING,
+  CURVE_AXES,
+  type AxisCurves,
   type Clip,
+  type CurveAxis,
+  type KeyProperty,
   type JointRef,
   type PoseKey,
   type RigMapping,
@@ -17,6 +21,7 @@ import type {
 import type { CharacterAssets } from '@dilemma/io'
 import { create } from 'zustand'
 import type { TimelineRowId } from './components/timeline-tracks.ts'
+import type { CurvePoint } from './components/curve-graph.ts'
 import {
   defaultDockLayout,
   dockSide,
@@ -78,6 +83,16 @@ export interface RigSetupDraft {
   error: string | null
 }
 
+export interface CurveTarget {
+  clipId: string
+  joint: number
+  property: KeyProperty
+}
+
+export interface CurveDraft extends CurveTarget {
+  curves: AxisCurves
+}
+
 export interface ViewportSettings extends ViewportDisplay {
   cameraFrame: boolean
   compositionGrid: 'none' | 'thirds' | 'golden'
@@ -110,11 +125,23 @@ interface UiState {
   moveDockPanel(panel: DockPanel, side: DockSide, drop: DockDrop): void
   inspectorExpansion: Partial<Record<string, boolean>>
   setInspectorExpanded(joint: string, expanded: boolean): void
-  panelSizes: Partial<Record<DockSide | 'timeline', number>>
+  panelSizes: Partial<Record<DockSide | 'timeline' | 'curves', number>>
   setPanelSize(panel: keyof UiState['panelSizes'], size: number | undefined): void
   workArea: WorkArea | null
   setWorkArea(workArea: UiState['workArea']): void
   previewFrame: number
+  timelineMode: 'keys' | 'curves'
+  setTimelineMode(mode: UiState['timelineMode']): void
+  curveProperty: KeyProperty | null
+  setCurveProperty(property: UiState['curveProperty']): void
+  curveAxes: readonly CurveAxis[]
+  setCurveAxes(axes: readonly CurveAxis[]): void
+  curveSelection: CurvePoint[]
+  setCurveSelection(points: CurvePoint[]): void
+  curveTarget: CurveTarget | null
+  setCurveTarget(target: CurveTarget | null): void
+  curveDraft: CurveDraft | null
+  setCurveDraft(draft: CurveDraft | null): void
   timelineRange: TimelineRange | null
   activeTimelineRow: TimelineRowRef | null
   expandedTimelineCharacterId: string | null
@@ -196,6 +223,22 @@ export const useUi = create<UiState>((set) => ({
   workArea: null,
   setWorkArea: (workArea) => set({ workArea, playing: false }),
   previewFrame: DEFAULT_SCENE_TIMING.start,
+  timelineMode: 'keys',
+  setTimelineMode: (timelineMode) => set({ timelineMode, timelineRange: null, curveSelection: [] }),
+  curveProperty: null,
+  setCurveProperty: (curveProperty) => set({ curveProperty, curveSelection: [] }),
+  curveAxes: CURVE_AXES,
+  setCurveAxes: (curveAxes) =>
+    set((state) => ({
+      curveAxes,
+      curveSelection: state.curveSelection.filter(({ axis }) => curveAxes.includes(axis)),
+    })),
+  curveSelection: [],
+  setCurveSelection: (curveSelection) => set({ curveSelection }),
+  curveTarget: null,
+  setCurveTarget: (curveTarget) => set({ curveTarget, curveSelection: [] }),
+  curveDraft: null,
+  setCurveDraft: (curveDraft) => set({ curveDraft }),
   timelineRange: null,
   activeTimelineRow: null,
   expandedTimelineCharacterId: null,

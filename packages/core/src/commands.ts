@@ -1,6 +1,7 @@
 import {
   TRANSFORM_CHANNELS,
   validSceneTiming,
+  type AxisCurves,
   type Character,
   type Clip,
   type DilemmaDocument,
@@ -8,7 +9,9 @@ import {
   type EffectorPin,
   type JointTrack,
   type KeyChannel,
+  type KeyProperty,
   type Quat,
+  type SampledKeyChannel,
   type SceneTiming,
   type TransformChannel,
   type TransformKey,
@@ -22,6 +25,7 @@ import {
   type Effector,
   type RigMapping,
 } from './rig.ts'
+import { curveValue, keyFrames, rotationAxes, validAxisCurves } from './curves.ts'
 
 /**
  * Every change to the document is a command. `apply` returns the next
@@ -201,8 +205,8 @@ export function setClipTiming(
     if (!Number.isFinite(fps) || fps <= 0) throw new Error('Clip FPS must be greater than zero.')
 
     const excludesKeys = (channel: KeyChannel | undefined) => {
-      const frames = channel?.frames
-      return !!frames?.length && (frames[0]! < start || frames[frames.length - 1]! > end)
+      const frames = keyFrames(channel)
+      return frames.length > 0 && (frames[0]! < start || frames[frames.length - 1]! > end)
     }
     if (
       excludesKeys(clip.limb?.targets) ||
@@ -223,7 +227,45 @@ const channelLabel = {
   translations: 'translation',
   rotations: 'rotation',
   scales: 'scale',
-} satisfies Record<TransformChannel, string>
+  ikTarget: 'IK target',
+} satisfies Record<KeyProperty, string>
+
+/** Replace the independent curves for one property as a single undoable edit. */
+export function setAxisCurves(
+  id: string,
+  joint: number,
+  property: KeyProperty,
+  curves: AxisCurves,
+  label = `Edit ${channelLabel[property]} curves`,
+): Command {
+  return editClip(id, label, (clip) => {
+    if (!clip) throw new Error(`No clip ${id}.`)
+    const empty = curves.every((curve) => curve.length === 0)
+    if (!empty && !validAxisCurves(curves, clip.start, clip.end)) {
+      throw new Error('Curve keys need unique whole frames within the clip and finite values.')
+    }
+    const next = { ...clip }
+    if (property === 'ikTarget') {
+      if (clip.limb?.tip !== joint) throw new Error('The clip has no IK track for this joint.')
+      if (empty) delete next.limb
+      else next.limb = { tip: joint, targets: { curves } }
+      return next
+    }
+    const track = clip.tracks.find((item) => item.joint === joint)
+    const edited = { ...track, joint }
+    if (empty) delete edited[property]
+    else edited[property] = { curves }
+    next.tracks = clip.tracks.flatMap((item) =>
+      item === track ? (hasChannels(edited) ? [edited] : []) : [item],
+    )
+    if (!track && hasChannels(edited)) next.tracks.push(edited)
+    return next
+  })
+}
+
+function hasChannels(track: JointTrack): boolean {
+  return Boolean(track.translations || track.rotations || track.scales)
+}
 
 export interface JointKey {
   joint: number
@@ -247,13 +289,14 @@ export function setTransformKeys(
   const id = typeof target === 'string' ? target : target.id
   const single = keys.length === 1 ? keys[0] : undefined
   const label = single ? `Set ${channelLabel[single.key.channel]} key` : 'Set transform keys'
-  return editClip(id, label, (current) => {
+  return editClip(id, label, (current, doc) => {
     const clip = current ?? (typeof target === 'string' ? undefined : target)
     if (!clip) throw new Error(`No clip ${id}.`)
     if (!Number.isInteger(frame) || frame < clip.start || frame > clip.end) {
       throw new Error('The key must be on an integer frame within the clip.')
     }
     const tracks = [...clip.tracks]
+    const character = doc.characters.find((item) => item.id === clip.characterId)
     for (const { joint, key } of keys) {
       if (!key.value.every(Number.isFinite)) throw new Error('The key values must be finite.')
       const index = tracks.findIndex((track) => track.joint === joint)
@@ -261,14 +304,60 @@ export function setTransformKeys(
       tracks[index < 0 ? tracks.length : index] = {
         ...track,
         joint,
-        [key.channel]: insertKey(track?.[key.channel], frame, key.value),
+        [key.channel]: insertKey(
+          track?.[key.channel],
+          frame,
+          key.value,
+          character?.skeleton.joints[joint]?.rest.rotation,
+        ),
       }
     }
     return { ...clip, tracks }
   })
 }
 
-function insertKey(channel: KeyChannel | undefined, frame: number, value: readonly number[]) {
+function insertKey(
+  channel: SampledKeyChannel | undefined,
+  frame: number,
+  value: Vec3 | Quat,
+): SampledKeyChannel
+function insertKey(
+  channel: KeyChannel | undefined,
+  frame: number,
+  value: Vec3 | Quat,
+  restRotation?: Quat,
+): KeyChannel
+function insertKey(
+  channel: KeyChannel | undefined,
+  frame: number,
+  value: Vec3 | Quat,
+  restRotation?: Quat,
+): KeyChannel {
+  if (channel?.curves) {
+    let values: readonly number[] = value
+    if (value.length === 4) {
+      const fallback = restRotation ? rotationAxes(restRotation) : [0, 0, 0]
+      const reference = channel.curves.map(
+        (curve, axis) => curveValue(curve, frame) ?? fallback[axis]!,
+      ) as Vec3
+      values = rotationAxes(value, reference)
+    }
+    return {
+      curves: channel.curves.map((curve, axis) => {
+        const keys = [...curve]
+        const first = keys.findIndex((existing) => existing.frame >= frame)
+        const index = first < 0 ? keys.length : first
+        const existing = keys[index]?.frame === frame ? keys[index] : undefined
+        keys.splice(index, existing ? 1 : 0, {
+          interpolation: keys[index - 1]?.interpolation ?? 'linear',
+          ...existing,
+          frame,
+          value: values[axis]!,
+        })
+        return keys
+      }) as AxisCurves,
+    }
+  }
   const frames = [...(channel?.frames ?? [])]
   const values = [...(channel?.values ?? [])]
   const first = frames.findIndex((existing) => existing >= frame)
@@ -289,7 +378,8 @@ export function setLimbTargetKey(target: Clip | string, tip: number, frame: numb
     }
     if (clip.limb && clip.limb.tip !== tip) throw new Error('The clip already has an IK limb.')
     if (!value.every(Number.isFinite)) throw new Error('The key values must be finite.')
-    return { ...clip, limb: { tip, targets: insertKey(clip.limb?.targets, frame, value) } }
+    const targets = insertKey(clip.limb?.targets, frame, value)
+    return { ...clip, limb: { tip, targets } }
   })
 }
 
@@ -344,7 +434,7 @@ export function deleteClipKeys(
         if (kept) next[name] = kept
         else delete next[name]
       }
-      return next.translations || next.rotations || next.scales ? [next] : []
+      return hasChannels(next) ? [next] : []
     })
     const next = { ...clip, tracks }
     if (limb && clip.limb) {
@@ -376,11 +466,29 @@ export function deleteRotationKeys(
 }
 
 function outsideRange(
+  channel: SampledKeyChannel,
+  stride: number,
+  start: number,
+  end: number,
+): SampledKeyChannel | undefined
+function outsideRange(
+  channel: KeyChannel,
+  stride: number,
+  start: number,
+  end: number,
+): KeyChannel | undefined
+function outsideRange(
   channel: KeyChannel,
   stride: number,
   start: number,
   end: number,
 ): KeyChannel | undefined {
+  if (channel.curves) {
+    const curves = channel.curves.map((keys) =>
+      keys.filter(({ frame }) => frame < start || frame > end),
+    ) as AxisCurves
+    return curves.some((curve) => curve.length) ? { curves } : undefined
+  }
   const { frames, values } = channel
   const kept = frames.filter((frame) => frame < start || frame > end)
   if (kept.length === frames.length) return channel

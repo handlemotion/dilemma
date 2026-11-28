@@ -2,6 +2,7 @@ import {
   CONTROL_IDS,
   CONTROL_LABELS,
   controlJoint,
+  keyFrames,
   TRANSFORM_CHANNELS,
   type ControlId,
   type Character,
@@ -12,6 +13,8 @@ import {
 export const TRACK_HEIGHT = 36
 export const TIMELINE_HEADER_HEIGHT = 36
 export const DEFAULT_TIMELINE_HEIGHT = TIMELINE_HEADER_HEIGHT + TRACK_HEIGHT + 1
+export const MIN_CURVE_TIMELINE_HEIGHT = 176
+export const DEFAULT_CURVE_TIMELINE_HEIGHT = 264
 
 export type TimelineRowId =
   | 'preview'
@@ -46,7 +49,7 @@ export function timelineRows(character: Character, clip: Clip): TimelineRow[] {
     const frames = framesByJoint.get(track.joint) ?? new Set<number>()
     framesByJoint.set(track.joint, frames)
     for (const channel of TRANSFORM_CHANNELS) {
-      for (const frame of track[channel]?.frames ?? []) {
+      for (const frame of keyFrames(track[channel])) {
         if (frame < clip.start || frame > clip.end) continue
         summary.add(frame)
         frames.add(frame)
@@ -56,10 +59,11 @@ export function timelineRows(character: Character, clip: Clip): TimelineRow[] {
 
   const limb = clip.limb
   const tip = limb && joints[limb.tip]
-  if (limb && tip) for (const frame of limb.targets.frames) summary.add(frame)
+  const targetFrames = keyFrames(limb?.targets)
+  for (const frame of targetFrames) summary.add(frame)
   const controls = CONTROL_IDS.flatMap((id): TimelineRow[] => {
-    const frames = clip.controls?.[id]?.frames
-    if (!frames?.length) return []
+    const frames = keyFrames(clip.controls?.[id])
+    if (!frames.length) return []
     for (const frame of frames) summary.add(frame)
     return [
       {
@@ -82,7 +86,7 @@ export function timelineRows(character: Character, clip: Clip): TimelineRow[] {
       name: `${tip.name} IK target`,
       joint: limb.tip,
       depth: 1,
-      frames: limb.targets.frames,
+      frames: targetFrames,
     })
   }
   const roots: number[] = []
@@ -143,11 +147,11 @@ export function keyframeInDirection(
   )
   const inClip = (key: number) => key >= clip.start && key <= clip.end
   let nearest: number | undefined
-  function consider(frames: number[] | undefined) {
+  function consider(frames: readonly number[]) {
     const candidate =
       direction === -1
-        ? frames?.findLast((key) => key < frame && inClip(key))
-        : frames?.find((key) => key > frame && inClip(key))
+        ? frames.findLast((key) => key < frame && inClip(key))
+        : frames.find((key) => key > frame && inClip(key))
     if (candidate !== undefined && (nearest === undefined || (candidate - nearest) * direction < 0))
       nearest = candidate
   }
@@ -161,13 +165,13 @@ export function keyframeInDirection(
           (ref.control ? ref.control === id : ref.joint === joint),
       )
     )
-      consider(clip.controls?.[id]?.frames)
+      consider(keyFrames(clip.controls?.[id]))
   }
   const limb = clip.limb
-  if (limb && (joints.size === 0 || joints.has(limb.tip))) consider(limb.targets.frames)
+  if (limb && (joints.size === 0 || joints.has(limb.tip))) consider(keyFrames(limb.targets))
   for (const track of clip.tracks) {
     if (joints.size > 0 && !joints.has(track.joint)) continue
-    for (const channel of TRANSFORM_CHANNELS) consider(track[channel]?.frames)
+    for (const channel of TRANSFORM_CHANNELS) consider(keyFrames(track[channel]))
   }
   return nearest
 }

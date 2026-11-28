@@ -42,7 +42,7 @@ describe('glTF import', () => {
     expect(clip).toMatchObject({ name: 'Wave', fps: 30, start: 0, end: 20 })
     for (const track of clip.tracks) {
       for (const channel of [track.translations, track.rotations, track.scales]) {
-        if (channel) expect(channel.frames.every(Number.isInteger)).toBe(true)
+        if (channel) expect(channel.frames?.every(Number.isInteger)).toBe(true)
       }
     }
     // The wrist never moves relative to its parent, so it has no track.

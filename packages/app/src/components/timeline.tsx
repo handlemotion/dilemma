@@ -70,6 +70,7 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
   const selected = selectedContact(clip ?? undefined, contactSelection)
   const timelineMode = useUi((s) => s.timelineMode)
   const showCurves = timelineMode === 'curves' && clip && character?.skeleton.joints.length
+  const restoreSwitcherFocus = useRef(false)
   const timelineBody = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const timecodeField = useRef<HTMLInputElement>(null)
@@ -348,6 +349,7 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
   const contactDescription = selected
     ? ` ${CONTROL_LABELS[selected.effector]} contact, frames ${selected.start} to ${selected.end}. Alt and arrows to move. Delete to remove.`
     : ''
+  const switchViewLabel = showCurves ? 'Switch to Keys view' : 'Switch to Curves view'
 
   const controls = (
     <div
@@ -414,34 +416,25 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
           <Icon name="skip" />
         </TransportButton>
       </div>
-      <div
-        role="group"
-        aria-label="Timeline view"
-        className="flex items-center gap-0.5"
-        data-action-group="workspace"
+      <button
+        ref={(button) => {
+          if (!button || !restoreSwitcherFocus.current) return
+          restoreSwitcherFocus.current = false
+          button.focus({ preventScroll: true })
+        }}
+        type="button"
+        aria-label={switchViewLabel}
+        title={switchViewLabel}
+        disabled={!clip || !character?.skeleton.joints.length}
+        className="shell-icon focus-visible:outline-primary"
         data-timeline-track
+        onClick={(event) => {
+          restoreSwitcherFocus.current = document.activeElement === event.currentTarget
+          useUi.getState().setTimelineMode(showCurves ? 'keys' : 'curves')
+        }}
       >
-        {(['keys', 'curves'] as const).map((mode) => {
-          const active = mode === (showCurves ? 'curves' : 'keys')
-          const label = mode === 'keys' ? 'Keys' : 'Curves'
-          return (
-            <button
-              key={mode}
-              type="button"
-              aria-label={label}
-              aria-pressed={active}
-              title={label}
-              disabled={mode === 'curves' && (!clip || !character?.skeleton.joints.length)}
-              className="shell-icon shell-toggle focus-visible:outline-primary"
-              onClick={() => {
-                if (!active) useUi.getState().setTimelineMode(mode)
-              }}
-            >
-              <ActionIcon name={mode === 'keys' ? 'keysView' : 'curvesView'} />
-            </button>
-          )
-        })}
-      </div>
+        <ActionIcon name={showCurves ? 'curvesView' : 'keysView'} />
+      </button>
     </div>
   )
 

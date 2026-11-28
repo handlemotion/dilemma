@@ -1,4 +1,13 @@
-import type { Clip, KeyChannel, Skeleton } from '@dilemma/core'
+import {
+  CONTROL_IDS,
+  controlJoint,
+  controlKind,
+  EFFECTORS,
+  type Clip,
+  type KeyChannel,
+  type RigMapping,
+  type Skeleton,
+} from '@dilemma/core'
 
 /** Floats per joint in a local pose: translation (3), rotation quaternion xyzw (4), scale (3). */
 export const LOCAL_STRIDE = 10
@@ -11,11 +20,16 @@ export interface CompiledSkeleton {
   parents: Int32Array
   /** Rest pose, LOCAL_STRIDE floats per joint. */
   rest: Float64Array
+  controls: Int32Array
 }
 
 export interface Pose {
   local: Float64Array
   world: Float64Array
+  authored: Float64Array
+  /** World-space marker positions indexed by CONTROL_IDS. */
+  controlPositions: Float64Array
+  pinned: Uint8Array
   ik: {
     tip: number
     target: Float64Array
@@ -42,9 +56,11 @@ export interface CompiledClip {
   end: number
   tracks: CompiledTrack[]
   limb: { tip: number; targets: CompiledChannel } | null
+  controls: (CompiledChannel | null)[]
+  pins: (Float64Array | null)[]
 }
 
-export function compileSkeleton(skeleton: Skeleton): CompiledSkeleton {
+export function compileSkeleton(skeleton: Skeleton, rig?: RigMapping): CompiledSkeleton {
   const count = skeleton.joints.length
   const parents = new Int32Array(count)
   const rest = new Float64Array(count * LOCAL_STRIDE)
@@ -58,13 +74,17 @@ export function compileSkeleton(skeleton: Skeleton): CompiledSkeleton {
     rest.set(joint.rest.rotation, o + 3)
     rest.set(joint.rest.scale, o + 7)
   })
-  return { count, parents, rest }
+  const controls = Int32Array.from(CONTROL_IDS, (id) => controlJoint(skeleton, rig, id) ?? -1)
+  return { count, parents, rest, controls }
 }
 
 export function createPose(skeleton: CompiledSkeleton): Pose {
   return {
     local: new Float64Array(skeleton.count * LOCAL_STRIDE),
     world: new Float64Array(skeleton.count * WORLD_STRIDE),
+    authored: new Float64Array(skeleton.count * LOCAL_STRIDE),
+    controlPositions: new Float64Array(CONTROL_IDS.length * 3),
+    pinned: new Uint8Array(CONTROL_IDS.length),
     ik: {
       tip: -1,
       target: new Float64Array(3),
@@ -87,6 +107,10 @@ function createLimbScratch() {
     transport: new Float64Array(4),
     swing: new Float64Array(4),
     rootDelta: new Float64Array(4),
+    pole: new Float64Array(3),
+    effectorTarget: new Float64Array(3),
+    effectorPole: new Float64Array(3),
+    ancestor: new Float64Array(4),
   }
 }
 
@@ -104,7 +128,14 @@ export function compileClip(clip: Clip, jointCount: number): CompiledClip {
   })
   const targets = compileChannel(clip.limb?.targets, 3)
   const limb = clip.limb && targets?.frames.length ? { tip: clip.limb.tip, targets } : null
-  return { start: clip.start, end: clip.end, tracks, limb }
+  const controls = CONTROL_IDS.map((id) =>
+    compileChannel(clip.controls?.[id], controlKind(id) === 'rotation' ? 4 : 3),
+  )
+  const pins = EFFECTORS.map((id) => {
+    const pin = clip.pins?.[id]
+    return pin ? Float64Array.from([...pin.position, ...pin.rotation]) : null
+  })
+  return { start: clip.start, end: clip.end, tracks, limb, controls, pins }
 }
 
 function compileChannel(channel: KeyChannel | undefined, width: number): CompiledChannel | null {

@@ -1,3 +1,4 @@
+import { controlJoint, type ControlId } from './rig.ts'
 import type { Command } from './commands.ts'
 import { emptyDocument, type DilemmaDocument } from './document.ts'
 
@@ -5,6 +6,7 @@ import { emptyDocument, type DilemmaDocument } from './document.ts'
 export interface JointRef {
   characterId: string
   joint: number
+  control?: ControlId
 }
 
 export interface Selection {
@@ -131,9 +133,18 @@ function firstPlayhead(doc: DilemmaDocument): Playhead {
 }
 
 function pruneSelection(selection: Selection, doc: DilemmaDocument): Selection {
-  const joints = selection.joints.filter((ref) => {
+  let changed = false
+  const joints = selection.joints.flatMap((ref) => {
     const character = doc.characters.find((c) => c.id === ref.characterId)
-    return character !== undefined && ref.joint < character.skeleton.joints.length
+    if (!character || !character.skeleton.joints[ref.joint]) {
+      changed = true
+      return []
+    }
+    if (ref.control && controlJoint(character.skeleton, character.rig, ref.control) !== ref.joint) {
+      changed = true
+      return [{ characterId: ref.characterId, joint: ref.joint }]
+    }
+    return [ref]
   })
-  return joints.length === selection.joints.length ? selection : { joints }
+  return changed ? { joints } : selection
 }

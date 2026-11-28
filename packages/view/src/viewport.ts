@@ -1,4 +1,13 @@
-import type { Character, Clip, EditorState, JointRef, PoseKey } from '@dilemma/core'
+import {
+  CONTROL_IDS,
+  selectedControl,
+  type ControlId,
+  type Character,
+  type Clip,
+  type EditorState,
+  type JointRef,
+  type PoseKey,
+} from '@dilemma/core'
 import {
   compileClip,
   compilePosePreview,
@@ -12,6 +21,7 @@ import {
   type PosePreview,
 } from '@dilemma/solve'
 import {
+  Box3,
   Color,
   DirectionalLight,
   GridHelper,
@@ -28,8 +38,10 @@ import {
   type Object3D,
 } from 'three'
 import { JointOverlay } from './joints.ts'
+import { MotionTrail, type MotionTrailData } from './motion-trail.ts'
 import { MeshPicker } from './picking.ts'
-import { framingSphere, Rig, type NavigationPreferences } from './rig.ts'
+import { PoseControls } from './pose-controls.ts'
+import { framingSphere, Rig, type CameraDrag, type NavigationPreferences } from './rig.ts'
 import { TransformGizmo, type TransformEvents, type TransformMode } from './transform-gizmo.ts'
 
 /** Render resources for one character: its scene and one object per joint, in joint order. */
@@ -43,6 +55,7 @@ export interface ViewportEvents extends TransformEvents {
   pick(joint: JointRef | null, additive: boolean): void
   pickBox(joints: JointRef[], additive: boolean): void
   marquee(rect: ViewportMarquee | null): void
+  hoverControl(hover: ViewportControlHover | null): void
 }
 
 export interface ViewportMarquee {
@@ -52,10 +65,32 @@ export interface ViewportMarquee {
   height: number
 }
 
+export interface ViewportControlHover {
+  control: ControlId
+  outOfReach: boolean
+  x: number
+  y: number
+}
+
+export interface RigSetupPreview {
+  characterId: string
+  overview: boolean
+  focusHeight: number | null
+  focusJoints: readonly number[]
+  highlightedJoints: readonly number[]
+  picking: boolean
+}
+
+export interface RigSetupSpace {
+  right: number
+  bottom: number
+}
+
 export interface ViewportDisplay {
   cameraLocked: boolean
   floorGrid: boolean
   shading: 'materials' | 'clay' | 'wireframe'
+  skeletonInPose: boolean
 }
 
 interface SelectionPointer {
@@ -87,11 +122,13 @@ interface Entry {
   pose: Pose
   overlay: JointOverlay
   picker: MeshPicker
+  controls: PoseControls
 }
 
 const PICK_RADIUS_PX = 12
 const BONE_RADIUS_PX = 6
 const DRAG_THRESHOLD_PX = 4
+const RIG_OVERVIEW_TURN = Math.PI / 12
 
 /**
  * Draws the solved pose of the current editor state and turns clicks into
@@ -102,11 +139,18 @@ export class Viewport {
   private renderer: WebGLRenderer
   private scene = new Scene()
   private camera = new PerspectiveCamera(35, 1, 0.01, 1000)
-  private grid = new GridHelper(10, 20, '#bec3cd', '#ced3dc')
+  private grid = new GridHelper(10, 20, '#afb6c3', '#c1c7d2')
+  private motionTrail = new MotionTrail()
   private clay = new MeshStandardMaterial({ color: '#a9aeb8', roughness: 0.8 })
   private wireframe = new MeshBasicMaterial({ color: '#535c6b', wireframe: true })
   private rig: Rig
   private gizmo: TransformGizmo
+  private transformMode: TransformMode = 'rotate'
+  private skeletonInPose = false
+  private setupPreview: RigSetupPreview | null = null
+  private setupSpace: RigSetupSpace | null = null
+  private setupCamera: { position: Vector3; target: Vector3 } | null = null
+  private cameraLocked = false
   private transformPreviews = new Map<string, PosePreview>()
   private last = performance.now()
   private entries = new Map<string, Entry>()
@@ -135,12 +179,13 @@ export class Viewport {
     key.position.set(3, 6, 4)
     this.scene.add(key)
     this.grid.material.allowOverride = false
-    this.scene.add(this.grid)
+    this.scene.add(this.grid, this.motionTrail.group)
 
     this.rig = new Rig(this.camera, canvas, () => this.selectionCenter())
     this.gizmo = new TransformGizmo(this.scene, this.camera, canvas, events)
     canvas.addEventListener('pointerdown', this.onPointerDown)
     canvas.addEventListener('pointermove', this.onPointerMove)
+    canvas.addEventListener('pointerleave', this.clearControlHover)
     canvas.addEventListener('pointerup', this.onPointerUp)
     canvas.addEventListener('pointercancel', this.onPointerCancel)
     canvas.addEventListener('lostpointercapture', this.onPointerCancel)
@@ -158,11 +203,13 @@ export class Viewport {
     this.cancelSelection()
     this.canvas.removeEventListener('pointerdown', this.onPointerDown)
     this.canvas.removeEventListener('pointermove', this.onPointerMove)
+    this.canvas.removeEventListener('pointerleave', this.clearControlHover)
     this.canvas.removeEventListener('pointerup', this.onPointerUp)
     this.canvas.removeEventListener('pointercancel', this.onPointerCancel)
     this.canvas.removeEventListener('lostpointercapture', this.onPointerCancel)
     for (const entry of this.entries.values()) this.remove(entry)
     this.grid.dispose()
+    this.motionTrail.dispose()
     this.clay.dispose()
     this.wireframe.dispose()
     this.renderer.dispose()
@@ -172,8 +219,17 @@ export class Viewport {
     this.rig.setPreferences(preferences)
   }
 
-  setDisplay({ cameraLocked, floorGrid, shading }: ViewportDisplay): void {
+  beginCameraDrag(action: CameraDrag): ((deltaX: number, deltaY: number) => void) | null {
+    if (this.selectionPointer || this.gizmo.dragging) return null
+    return this.rig.beginShortcutDrag(action)
+  }
+
+  setDisplay({ cameraLocked, floorGrid, shading, skeletonInPose }: ViewportDisplay): void {
+    this.skeletonInPose = skeletonInPose
+    const lockChanged = cameraLocked !== this.cameraLocked
+    this.cameraLocked = cameraLocked
     this.rig.setLocked(cameraLocked)
+    if (lockChanged && this.setupPreview && this.setupSpace) this.frameRigSetup()
     this.grid.visible = floorGrid
     this.scene.overrideMaterial =
       shading === 'clay' ? this.clay : shading === 'wireframe' ? this.wireframe : null
@@ -182,6 +238,10 @@ export class Viewport {
   setAssets(assets: ReadonlyMap<string, ViewCharacter>): void {
     this.assets = assets
     if (this.state) this.sync(this.state)
+  }
+
+  setMotionTrail(data: MotionTrailData | null): void {
+    this.motionTrail.setData(data)
   }
 
   setState(state: EditorState): void {
@@ -195,7 +255,116 @@ export class Viewport {
   }
 
   setTransformMode(mode: TransformMode): void {
+    this.clearControlHover()
+    this.transformMode = mode
     this.gizmo.setMode(mode)
+  }
+
+  setRigSetupPreview(preview: RigSetupPreview | null): void {
+    const previous = this.setupPreview
+    if (Boolean(preview) !== Boolean(previous)) {
+      this.cancelTransform()
+      this.cancelSelection()
+      this.clearControlHover()
+    }
+    this.setupPreview = preview
+    this.canvas.style.cursor = preview?.picking ? 'crosshair' : ''
+    this.updateGizmo()
+    const controls = this.rig.controls
+    if (preview && !previous) {
+      this.setupCamera = {
+        position: controls.getPosition(new Vector3()),
+        target: controls.getTarget(new Vector3()),
+      }
+    }
+    if (!preview && this.setupCamera) {
+      const { position, target } = this.setupCamera
+      this.setupCamera = null
+      this.setupSpace = null
+      this.camera.clearViewOffset()
+      if (!this.cameraLocked) {
+        void controls.setLookAt(
+          position.x,
+          position.y,
+          position.z,
+          target.x,
+          target.y,
+          target.z,
+          this.animateCamera,
+        )
+      }
+    } else if (
+      preview &&
+      this.setupSpace &&
+      (preview.characterId !== previous?.characterId ||
+        preview.overview !== previous.overview ||
+        preview.focusHeight !== previous.focusHeight)
+    ) {
+      this.frameRigSetup()
+    }
+  }
+
+  setRigSetupSpace(space: RigSetupSpace): void {
+    if (space.right === this.setupSpace?.right && space.bottom === this.setupSpace.bottom) return
+    const animate = this.setupSpace === null && this.animateCamera
+    this.setupSpace = space
+    this.frameRigSetup(animate)
+  }
+
+  private get animateCamera(): boolean {
+    return !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  }
+
+  private frameRigSetup(animate = this.animateCamera): void {
+    const preview = this.setupPreview
+    const space = this.setupSpace
+    if (!preview || !space) return
+    if (this.cameraLocked) {
+      this.camera.clearViewOffset()
+      return
+    }
+    const entry = this.entries.get(preview.characterId)
+    const width = this.canvas.clientWidth
+    const height = this.canvas.clientHeight
+    if (!entry || width === 0 || height === 0) return
+    const right = Math.min(space.right, width * 0.75)
+    const bottom = Math.min(space.bottom, height * 0.75)
+    this.camera.setViewOffset(width, height, right / 2, bottom / 2, width, height)
+    const bounds = new Box3().expandByObject(entry.assets.root)
+    if (bounds.isEmpty()) {
+      for (let joint = 0; joint < entry.skeleton.count; joint++) {
+        bounds.expandByPoint(worldPosition(entry.pose, joint))
+      }
+    }
+    if (bounds.isEmpty()) return
+    const body = framingSphere([bounds.min, bounds.max])
+    let sphere = body
+    if (preview.focusHeight !== null) {
+      const points = preview.focusJoints.map((joint) => worldPosition(entry.pose, joint))
+      if (points.length === 0) {
+        const center = bounds.getCenter(new Vector3())
+        center.y = bounds.min.y + (bounds.max.y - bounds.min.y) * preview.focusHeight
+        sphere = new Sphere(center, body.radius * 0.56)
+      } else {
+        sphere = framingSphere(points)
+        sphere.radius = Math.max(sphere.radius * 1.25, body.radius * 0.27)
+      }
+    }
+    const initialView = this.setupCamera
+    const direction =
+      preview.overview && initialView && this.animateCamera
+        ? initialView.position
+            .clone()
+            .sub(initialView.target)
+            .applyAxisAngle(this.camera.up, -RIG_OVERVIEW_TURN)
+        : undefined
+    this.rig.frameWithGuide(
+      sphere,
+      (width - right) / width,
+      (height - bottom) / height,
+      animate,
+      direction,
+    )
   }
 
   setTransformPreviews(previews: readonly TransformPreview[]): void {
@@ -223,16 +392,30 @@ export class Viewport {
     return true
   }
 
-  /** Frame the selected joints, or every character when nothing is selected. */
+  /** Frame selected handles or joints, or fit the visible character meshes. */
   frameSelection(): void {
+    if (this.setupPreview) {
+      this.frameRigSetup()
+      return
+    }
     const points: Vector3[] = []
     const selected = this.state?.selection.joints ?? []
-    for (const entry of this.entries.values()) {
-      const joints =
-        selected.length > 0
-          ? selected.filter((ref) => ref.characterId === entry.character.id).map((ref) => ref.joint)
-          : Array.from({ length: entry.skeleton.count }, (_, i) => i)
-      for (const j of joints) points.push(worldPosition(entry.pose, j))
+    if (!selected.length) {
+      const bounds = new Box3()
+      for (const { assets } of this.entries.values()) {
+        bounds.expandByObject(assets.root, true)
+      }
+      if (!bounds.isEmpty()) points.push(bounds.min, bounds.max)
+    }
+    for (const ref of selected) {
+      const entry = this.entries.get(ref.characterId)
+      if (!entry) continue
+      const control = this.selectedPoseControl(entry)?.control
+      points.push(
+        control
+          ? new Vector3().fromArray(entry.pose.controlPositions, CONTROL_IDS.indexOf(control) * 3)
+          : worldPosition(entry.pose, ref.joint),
+      )
     }
     if (points.length === 0) return
     const sphere = points.length === 1 ? new Sphere(points[0], 0.25) : framingSphere(points)
@@ -242,9 +425,16 @@ export class Viewport {
   private sync(state: EditorState): void {
     for (const [id, entry] of this.entries) {
       const next = state.doc.characters.find((c) => c.id === id)
-      if (next !== entry.character || this.assets.get(id) !== entry.assets) {
+      if (
+        !next ||
+        next.skeleton !== entry.character.skeleton ||
+        this.assets.get(id) !== entry.assets
+      ) {
         this.remove(entry)
         this.entries.delete(id)
+      } else if (next.rig !== entry.character.rig) {
+        entry.character = next
+        entry.skeleton.controls.set(compileSkeleton(next.skeleton, next.rig).controls)
       }
     }
     const added: Entry[] = []
@@ -252,26 +442,34 @@ export class Viewport {
       if (this.entries.has(character.id)) continue
       const assets = this.assets.get(character.id)
       if (!assets) continue
-      const skeleton = compileSkeleton(character.skeleton)
+      const skeleton = compileSkeleton(character.skeleton, character.rig)
       const pose = createPose(skeleton)
       solvePose(skeleton, null, 0, pose)
-      const overlay = new JointOverlay(skeleton, jointRadius(pose, skeleton))
+      const radius = jointRadius(pose, skeleton)
+      const overlay = new JointOverlay(skeleton, radius)
+      const controls = new PoseControls(character.id, skeleton)
       for (const bone of assets.bones) {
         bone.matrixAutoUpdate = false
         bone.matrixWorldAutoUpdate = false
       }
-      this.scene.add(assets.root, overlay.group)
+      this.scene.add(assets.root, overlay.group, controls.group)
       const picker = new MeshPicker(assets.root, assets.bones)
-      const entry = { character, assets, skeleton, pose, overlay, picker }
+      const entry = { character, assets, skeleton, pose, overlay, picker, controls }
       this.entries.set(character.id, entry)
       added.push(entry)
     }
     this.paintSelection(state)
-    if (added.length > 0 && this.entries.size === added.length) this.frameSelection()
+    if (
+      this.setupPreview &&
+      added.some(({ character }) => character.id === this.setupPreview?.characterId)
+    )
+      this.frameRigSetup()
+    else if (added.length > 0 && this.entries.size === added.length) this.frameSelection()
   }
 
   private remove(entry: Entry): void {
-    this.scene.remove(entry.assets.root, entry.overlay.group)
+    this.scene.remove(entry.assets.root, entry.overlay.group, entry.controls.group)
+    entry.controls.dispose()
     entry.overlay.dispose()
     entry.picker.dispose()
   }
@@ -290,7 +488,10 @@ export class Viewport {
   private tick = (now: number) => {
     this.raf = requestAnimationFrame(this.tick)
     const start = performance.now()
-    this.rig.update((start - this.last) / 1000)
+    if (!this.gizmo.dragging && !this.selectionPointer?.direct) {
+      this.rig.update((start - this.last) / 1000)
+    }
+    this.camera.updateMatrixWorld()
     this.last = start
     this.solveAll()
     this.renderer.render(this.scene, this.camera)
@@ -315,21 +516,66 @@ export class Viewport {
         entry.pose,
         this.transformPreviews.get(entry.character.id),
       )
+      this.motionTrail.setFrame(entry.character.id, playhead?.frame ?? 0, entry.pose)
       const w = entry.pose.world
       entry.assets.bones.forEach((bone, i) => {
         bone.matrixWorld.fromArray(w, i * WORLD_STRIDE)
         bone.matrixWorldNeedsUpdate = false
       })
-      entry.overlay.update(entry.pose)
+      const preview =
+        this.setupPreview?.characterId === entry.character.id ? this.setupPreview : null
+      entry.overlay.update(
+        entry.pose,
+        this.showJointOverlay(entry),
+        preview?.highlightedJoints,
+        this.camera,
+        this.canvas.clientHeight,
+      )
+      entry.controls.update(
+        entry.pose,
+        this.transformMode === 'ik' && !this.setupPreview,
+        this.selectedPoseControl(entry)?.control,
+        this.camera,
+        this.canvas.clientHeight,
+      )
     }
     this.updateGizmo()
   }
 
   private updateGizmo(): void {
     const selected = this.state?.selection.joints
-    const joint = selected?.length === 1 ? selected[0]! : null
+    const joint = !this.setupPreview && selected?.length === 1 ? selected[0]! : null
     const entry = joint ? this.entries.get(joint.characterId) : undefined
-    this.gizmo.update(joint, entry?.pose, entry?.skeleton)
+    this.gizmo.update(
+      entry && joint
+        ? (this.selectedPoseControl(entry) ?? {
+            characterId: joint.characterId,
+            joint: joint.joint,
+          })
+        : joint,
+      entry?.pose,
+      entry?.skeleton,
+      entry?.character.rig?.confirmed,
+    )
+  }
+
+  private showJointOverlay(entry: Entry): boolean {
+    if (this.setupPreview)
+      return this.setupPreview.picking && this.setupPreview.characterId === entry.character.id
+    return (
+      this.transformMode !== 'ik' ||
+      this.skeletonInPose ||
+      (!entry.character.rig?.confirmed && entry.pose.ik.tip >= 0)
+    )
+  }
+
+  private selectedPoseControl(entry: Entry): JointRef | null {
+    if (this.transformMode !== 'ik') return null
+    const joints = this.state?.selection.joints
+    const selected = joints?.length === 1 ? joints[0] : undefined
+    if (selected?.characterId !== entry.character.id) return null
+    const control = selectedControl(entry.character.skeleton, entry.character.rig, selected)
+    return control ? { ...selected, control } : null
   }
 
   private compiled(clip: Clip, entry: Entry): CompiledClip {
@@ -348,6 +594,7 @@ export class Viewport {
     this.renderer.setSize(width, height, false)
     this.camera.aspect = width / height
     this.camera.updateProjectionMatrix()
+    if (this.setupPreview && this.setupSpace) this.frameRigSetup(false)
   }
 
   private onPointerDown = (event: PointerEvent) => {
@@ -361,11 +608,22 @@ export class Viewport {
     )
       return
     const rect = this.canvas.getBoundingClientRect()
-    const hit = this.pickSkeleton(event.clientX - rect.left, event.clientY - rect.top)
+    const x = event.clientX - rect.left
+    const y = event.clientY - rect.top
+    if (this.setupPreview) {
+      if (this.setupPreview.picking) {
+        const hit = this.pickSkeleton(x, y)
+        if (hit?.dot) this.events.pick(hit.ref, false)
+      }
+      return
+    }
+    this.clearControlHover()
+    const hit = this.pickControl(x, y) ?? this.pickSkeleton(x, y)
     const canTransform = !event.shiftKey && !event.ctrlKey && !event.metaKey
-    // A press at the center of a joint dot can select it through a nearby gizmo.
+    // A pose handle or the center of a joint dot takes priority over a nearby axis.
     if (
       canTransform &&
+      !hit?.ref.control &&
       !(hit?.dot && hit.distance <= PICK_RADIUS_PX / 2) &&
       this.gizmo.grabHandle(event)
     ) {
@@ -387,11 +645,24 @@ export class Viewport {
   }
 
   private onPointerMove = (event: PointerEvent) => {
+    if (this.setupPreview) {
+      this.canvas.style.cursor = this.setupPreview.picking ? 'crosshair' : ''
+      return
+    }
     if (this.gizmo.move(event)) return
     const pointer = this.selectionPointer
     if (this.gizmo.dragging || this.rig.active) return
     if (!pointer) {
       this.gizmo.hover(event)
+      const rect = this.canvas.getBoundingClientRect()
+      const x = event.clientX - rect.left
+      const y = event.clientY - rect.top
+      const hit = this.pickControl(x, y)
+      const control = hit?.ref.control
+      this.events.hoverControl(
+        control ? { control, x, y, outOfReach: Boolean(hit?.outOfReach) } : null,
+      )
+      this.canvas.style.cursor = control ? 'grab' : ''
       return
     }
     if (pointer.id !== event.pointerId) return
@@ -436,6 +707,11 @@ export class Viewport {
     }
   }
 
+  private clearControlHover = () => {
+    this.events.hoverControl(null)
+    this.canvas.style.cursor = ''
+  }
+
   private onPointerCancel = (event: PointerEvent) => {
     this.gizmo.cancel(event.pointerId)
     if (this.selectionPointer?.id === event.pointerId) this.clearSelectionPointer()
@@ -469,6 +745,7 @@ export class Viewport {
     const height = this.canvas.clientHeight
     const p = new Vector3()
     for (const entry of this.entries.values()) {
+      if (!this.showJointOverlay(entry)) continue
       for (let joint = 0; joint < entry.skeleton.count; joint++) {
         const offset = joint * WORLD_STRIDE + 12
         const world = entry.pose.world
@@ -483,6 +760,22 @@ export class Viewport {
     return selected
   }
 
+  private pickControl(x: number, y: number): (SkeletonHit & { outOfReach: boolean }) | null {
+    if (this.transformMode !== 'ik' || this.setupPreview) return null
+    let hit: (SkeletonHit & { outOfReach: boolean }) | null = null
+    for (const entry of this.entries.values()) {
+      const candidate = entry.controls.pick(
+        x,
+        y,
+        this.canvas.clientWidth,
+        this.canvas.clientHeight,
+        this.camera,
+      )
+      if (candidate && nearer(hit, candidate.distance, candidate.depth)) hit = candidate
+    }
+    return hit
+  }
+
   /** Pick the visible joint dots first, then the parent-to-child bone segments. */
   private pickSkeleton(x: number, y: number): SkeletonHit | null {
     const width = this.canvas.clientWidth
@@ -491,6 +784,7 @@ export class Viewport {
     let dot: SkeletonHit | null = null
     let bone: SkeletonHit | null = null
     for (const entry of this.entries.values()) {
+      if (!this.showJointOverlay(entry)) continue
       const characterId = entry.character.id
       const projected = Array.from({ length: entry.skeleton.count }, (_, joint) => {
         const p = worldPosition(entry.pose, joint).project(this.camera)
@@ -536,6 +830,7 @@ export class Viewport {
     raycaster.setFromCamera(new Vector2((x / width) * 2 - 1, 1 - (y / height) * 2), this.camera)
     let best: { ref: JointRef; distance: number } | null = null
     for (const entry of this.entries.values()) {
+      if (!this.showJointOverlay(entry)) continue
       const hit = entry.picker.pick(raycaster.ray)
       if (hit && (!best || hit.distance < best.distance)) {
         best = {
@@ -549,6 +844,7 @@ export class Viewport {
 
   /** The middle of the selected joints, for the view to turn about. */
   private selectionCenter(): Vector3 | null {
+    if (this.setupPreview) return null
     const selected = this.state?.selection.joints ?? []
     if (selected.length === 0) return null
     const center = new Vector3()

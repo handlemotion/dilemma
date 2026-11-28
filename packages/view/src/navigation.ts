@@ -6,7 +6,7 @@
 // What a mouse's buttons do to the view. Every program for working in three dimensions
 // has its own way with them, and a hand that has learned one is slow to learn another:
 // so each button can be set by itself, or all of them at once to how another program has
-// them. The main button is not among them: it picks joints out, unless Alt is held.
+// them. The main button picks joints unless Alt is held.
 
 /** What a drag does to the view. */
 export type Drag = 'turn' | 'pan' | 'zoom'

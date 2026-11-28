@@ -28,7 +28,7 @@ export function NumberField({
       className={
         inspector
           ? 'flex h-6 min-w-0 items-center gap-1 rounded-md bg-raised px-2 has-[:focus-visible]:inset-ring-2 has-[:focus-visible]:inset-ring-accent'
-          : 'flex min-w-10 items-center justify-center gap-1 px-2 last:rounded-e-md hover:bg-control-hover has-[:focus-visible]:inset-ring-2 has-[:focus-visible]:inset-ring-accent'
+          : 'flex min-w-10 items-center justify-center gap-1 px-2 last:rounded-e-md hover:bg-control has-[:focus-visible]:inset-ring-2 has-[:focus-visible]:inset-ring-accent'
       }
       title={label}
     >

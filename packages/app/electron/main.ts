@@ -101,7 +101,7 @@ function createWindow(): BrowserWindow {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: '#e9ebef',
+    backgroundColor: '#f5f6f8',
     titleBarStyle: isMac ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 12, y: 10 },
     autoHideMenuBar: !isMac,

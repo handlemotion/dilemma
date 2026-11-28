@@ -6,6 +6,9 @@ import {
   deleteTransformKeys,
   removeCharacter,
   setClipTiming,
+  setControlKey,
+  setEffectorPin,
+  setRigMapping,
   setLimbTargetKey,
   setRotationKey,
   setSceneTiming,
@@ -194,6 +197,36 @@ describe('migrate', () => {
     editor.run(addCharacter(character('a'), [clip('c', 'a')]))
     const doc = editor.getState().doc
     expect(migrate(JSON.parse(JSON.stringify(doc)))).toEqual(doc)
+  })
+
+  it('loads version-four FK and IK tracks and preserves them through independent rig edits', () => {
+    const legacy = {
+      ...emptyDocument(),
+      version: 4,
+      characters: [character('a', 4)],
+      clips: [
+        {
+          ...clip('walk', 'a'),
+          tracks: [{ joint: 0, translations: { frames: [1], values: [0, 2, 0] } }],
+          limb: { tip: 3, targets: { frames: [3], values: [1, 2, 0] } },
+        },
+      ],
+    }
+    const doc = migrate(JSON.parse(JSON.stringify(legacy)))
+    expect(doc.clips).toEqual(legacy.clips)
+    const editor = new Editor(doc)
+    editor.run(setRigMapping('a', { confirmed: true, joints: { hips: 0, leftFoot: 3 } }))
+    editor.run(setEffectorPin('walk', 'leftFoot', { position: [1, 2, 0], rotation: [0, 0, 0, 1] }))
+    editor.run(setControlKey('walk', 8, { channel: 'control', control: 'hips', value: [0, 1, 0] }))
+    const posed = editor.getState().doc
+    expect(migrate(JSON.parse(JSON.stringify(posed)))).toEqual(posed)
+    expect(() => editor.run(setClipTiming('walk', { end: 7 }))).toThrow('include all keys')
+    editor.run(deleteClipKeys('walk', [], 8, 8, { controls: ['hips'] }))
+    expect(editor.getState().doc.clips[0]?.pins).toEqual(posed.clips[0]?.pins)
+    expect(editor.undo()).toBe(true)
+    expect(editor.getState().doc).toEqual(posed)
+    for (let edit = 0; edit < 3; edit++) expect(editor.undo()).toBe(true)
+    expect(editor.getState().doc).toEqual(doc)
   })
 
   it('loads version-three projects and saves undoable scene defaults alongside their authored clips', () => {

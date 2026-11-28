@@ -29,10 +29,10 @@ const treeStyle = {
   '--trees-font-family-override': 'var(--font-sans)',
   '--trees-font-size-override': '12px',
   '--trees-padding-inline-override': '0px',
-  '--trees-item-padding-x-override': '6px',
+  '--trees-item-padding-x-override': 'var(--outliner-row-inset)',
   '--trees-level-gap-override': '10px',
-  '--trees-item-margin-x-override': 'calc(var(--spacing) * 1.5)',
-  '--trees-border-radius-override': 'var(--radius-md)',
+  '--trees-item-margin-x-override': '0px',
+  '--trees-border-radius-override': '0px',
   '--trees-item-row-gap-override': '0px',
   '--trees-indent-guide-bg-override': '#c3c7d0',
 } as CSSProperties
@@ -85,6 +85,10 @@ const treeCss = `
     width: calc(var(--outliner-connector-width) + var(--trees-icon-width) + var(--outliner-icon-gap));
   }
   [data-item-section="content"] { display: flex; align-items: center; gap: var(--outliner-icon-gap); }
+  [data-item-section="content"] > [data-truncate-group-container] {
+    position: relative;
+    top: -1px;
+  }
   [data-item-section="content"]::before {
     content: "";
     flex: 0 0 14px;
@@ -259,16 +263,19 @@ export function Outliner() {
           <Icon name={allExpanded ? 'collapseAll' : 'expandAll'} size={16} />
         </button>
       </PanelHeader>
-      <PanelContent panel="outliner" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <label className="flex h-8 shrink-0 items-center gap-1.5 border-b border-line p-1 text-faint focus-within:border-accent">
-          <Icon name="search" size={14} className="shrink-0" />
+      <PanelContent
+        panel="outliner"
+        className="flex min-h-0 flex-1 flex-col overflow-hidden [--outliner-row-inset:7px]"
+      >
+        <label className="relative flex h-8 shrink-0 items-center gap-1.5 px-[var(--outliner-row-inset)] text-faint after:pointer-events-none after:absolute after:inset-x-0 after:bottom-0 after:h-px after:bg-line focus-within:after:bg-accent">
+          <Icon name="search" size={14} className="shrink-0 -translate-y-[0.5px]" />
           <input
             id="outliner-joint-search"
             ref={searchInput}
             type="search"
             aria-label="Find a joint"
             placeholder="Find a joint"
-            className="h-full min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-faint"
+            className="h-4 min-w-0 flex-1 -translate-y-px bg-transparent leading-4 text-ink outline-none placeholder:text-faint"
             onChange={(event) => model.setSearch(event.currentTarget.value || null)}
             onKeyDown={(event) => {
               if (event.key !== 'Escape') return
@@ -312,7 +319,7 @@ export function Outliner() {
             model={model}
             style={treeStyle}
             data-focused-branch={focused?.joint ? true : undefined}
-            className="mt-1 min-h-0 flex-1 overflow-hidden"
+            className="min-h-0 flex-1 overflow-hidden"
             onClickCapture={toggleJoint}
             renderContextMenu={(item, menu) => {
               const node = visible.get(item.path.replace(/\/$/, ''))

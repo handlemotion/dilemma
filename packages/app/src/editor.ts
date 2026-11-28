@@ -8,6 +8,9 @@ export const editor = new Editor()
 let previous = editor.getState()
 editor.subscribe((state) => {
   const ui = useUi.getState()
+  if (ui.rigSetup && !state.doc.characters.some(({ id }) => id === ui.rigSetup?.characterId)) {
+    useUi.setState({ rigSetup: null })
+  }
   if (state.doc.sceneTiming !== previous.doc.sceneTiming) {
     const { start, end } = state.doc.sceneTiming
     ui.setPreviewFrame(Math.min(end, Math.max(start, ui.previewFrame)))

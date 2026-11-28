@@ -23,9 +23,15 @@ export function canSolveLimb(skeleton: CompiledSkeleton, pose: Pose, tip: number
 }
 
 /** Align the two segments to a triangle formed by their lengths and target distance. */
-export function applyLimb(skeleton: CompiledSkeleton, pose: Pose): boolean {
+export function applyLimb(
+  skeleton: CompiledSkeleton,
+  pose: Pose,
+  tip = pose.ik.tip,
+  goal = pose.ik.target,
+  pole?: Float64Array,
+): boolean {
   const { ik, local, world } = pose
-  const { tip, scratch } = ik
+  const { scratch } = ik
   if (!canSolveLimb(skeleton, pose, tip)) return false
   const root = limbRoot(skeleton.parents, tip)
   const parent = skeleton.parents[root]!
@@ -36,7 +42,7 @@ export function applyLimb(skeleton: CompiledSkeleton, pose: Pose): boolean {
 
   // Solve in the FK root's rotation basis. The root parent's full affine
   // transform can be undone even when ancestors have nonuniform scale.
-  target.set(ik.target)
+  target.set(goal)
   if (parent >= 0 && !toParentSpace(target, world, parent * WORLD_STRIDE)) return false
   for (let i = 0; i < 3; i++) {
     target[i] = target[i]! - local[r + i]!
@@ -52,7 +58,10 @@ export function applyLimb(skeleton: CompiledSkeleton, pose: Pose): boolean {
   const targetDistance = Math.hypot(target[0]!, target[1]!, target[2]!)
   if (!Number.isFinite(targetDistance + reach) || !a || !b) return false
   for (let i = 0; i < 3; i++) aim[i] = upper[i]! + lower[i]!
-  if (Math.hypot(target[0]! - aim[0]!, target[1]! - aim[1]!, target[2]! - aim[2]!) <= epsilon)
+  if (
+    Math.hypot(target[0]! - aim[0]!, target[1]! - aim[1]!, target[2]! - aim[2]!) <= epsilon &&
+    !pole
+  )
     return false
 
   // Carry the FK bend plane along with the aim, with a stable fallback for
@@ -73,6 +82,15 @@ export function applyLimb(skeleton: CompiledSkeleton, pose: Pose): boolean {
   fromTo(transport, aim, target, normal)
   bend.set(normal)
   rotate(bend, transport)
+  if (pole) {
+    scratch.pole.set(pole)
+    if (parent < 0 || toParentSpace(scratch.pole, world, parent * WORLD_STRIDE)) {
+      for (let i = 0; i < 3; i++) scratch.pole[i] = scratch.pole[i]! - local[r + i]!
+      rotate(scratch.pole, local, r + 3, -1)
+      cross(elbow, target, scratch.pole)
+      if (normalize(elbow, epsilon)) bend.set(elbow)
+    }
+  }
   cross(elbow, bend, target)
 
   const distance = Math.max(Math.abs(a - b), Math.min(reach, targetDistance))
@@ -85,15 +103,15 @@ export function applyLimb(skeleton: CompiledSkeleton, pose: Pose): boolean {
   }
   rotate(upper, transport)
   fromTo(swing, upper, elbow, bend)
-  multiply(rootDelta, 0, swing, 0, transport, 0)
+  multiplyQuaternion(rootDelta, 0, swing, 0, transport, 0)
   rotate(target, rootDelta, 0, -1)
   fromTo(swing, lower, target, normal)
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; tip === ik.tip && i < 4; i++) {
     ik.fkRotations[i] = local[r + 3 + i]!
     ik.fkRotations[i + 4] = local[m + 3 + i]!
   }
-  multiply(local, r + 3, local, r + 3, rootDelta, 0)
-  multiply(local, m + 3, swing, 0, local, m + 3)
+  multiplyQuaternion(local, r + 3, local, r + 3, rootDelta, 0)
+  multiplyQuaternion(local, m + 3, swing, 0, local, m + 3)
   return true
 }
 
@@ -176,7 +194,7 @@ function rotate(v: Float64Array, q: Float64Array, o = 0, sign = 1): void {
   v[2] = vz + w * tz + x * ty - y * tx
 }
 
-function multiply(
+export function multiplyQuaternion(
   out: Float64Array,
   o: number,
   a: Float64Array,

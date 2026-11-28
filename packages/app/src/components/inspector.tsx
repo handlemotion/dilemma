@@ -15,6 +15,7 @@ import { useEditorState } from '../editor.ts'
 import { Icon } from '../icons/central.tsx'
 import { useUi } from '../ui-store.ts'
 import { InspectorSection } from './inspector-section.tsx'
+import { PoseInspector } from './pose-inspector.tsx'
 import { SceneInspector } from './scene-inspector.tsx'
 
 const axes = ['X', 'Y', 'Z'] as const
@@ -40,9 +41,21 @@ function toKey(channel: TransformChannel, values: Vec3): TransformKey {
 }
 
 export function Inspector() {
+  const poseMode = useUi((state) => state.transformMode === 'ik')
+  const { doc, selection, playhead } = useEditorState()
+  const clip = doc.clips.find((item) => item.id === playhead.clipId)
+  const characterId = selection.joints[0]?.characterId ?? clip?.characterId
+  const character = doc.characters.find((item) => item.id === characterId) ?? doc.characters[0]
+  if (poseMode && character && (character.rig?.confirmed || !clip?.limb)) {
+    return <PoseInspector character={character} />
+  }
+  return <JointInspectorPanel />
+}
+
+function JointInspectorPanel() {
   const { doc, selection, playhead } = useEditorState()
   const previewFrame = useUi((state) => state.previewFrame)
-  const active = doc.clips.find((clip) => clip.id === playhead.clipId)
+  const active = doc.clips.find((item) => item.id === playhead.clipId)
   const selected = selection.joints.flatMap((ref) => {
     const character = findCharacter(doc, ref.characterId)
     const joint = character?.skeleton.joints[ref.joint]
@@ -182,7 +195,7 @@ function JointProperties({
               <h3 className="text-xs leading-5 font-medium text-muted">{label}</h3>
               <button
                 type="button"
-                className="grid size-5 place-items-center rounded-md text-muted hover:bg-control hover:text-ink data-keyed:text-accent"
+                className="shell-icon size-5 p-0 data-keyed:text-accent"
                 aria-label={`Set ${label.toLowerCase()} key`}
                 aria-description={keyed ? 'Keyed at the current frame' : undefined}
                 title={keyed ? 'Keyed at the current frame' : `Set ${label.toLowerCase()} key`}

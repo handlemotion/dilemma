@@ -12,6 +12,7 @@
 import CameraControls from 'camera-controls'
 import {
   Box3,
+  MathUtils,
   Matrix4,
   PerspectiveCamera,
   Quaternion,
@@ -22,7 +23,7 @@ import {
   Vector3,
   Vector4,
 } from 'three'
-import { altDragOf, dragOf, PRESETS, type Button, type Buttons, type Drag } from './navigation.ts'
+import { altDragOf, dragOf, PRESETS, type Button, type Buttons } from './navigation.ts'
 import { MAC } from './platform.ts'
 import { scrollSource } from './scroll.ts'
 
@@ -37,6 +38,7 @@ export type Scrolling = 'auto' | 'trackpad' | 'wheel'
 
 /** What stays put as the view turns: the middle of the view, or the selected joints. */
 export type Pivot = 'view' | 'selection'
+export type CameraDrag = 'pan' | 'turn'
 
 export type NavigationPreferences = Buttons & {
   scrolling: Scrolling
@@ -114,7 +116,7 @@ export class Rig {
     controls.draggingSmoothTime = 0
     controls.minDistance = 0.02
     controls.maxDistance = 500
-    // The main button picks joints: it moves the view only with Alt held (see press).
+    // The main button picks joints unless Alt is held.
     controls.mouseButtons.left = ACTION.NONE
     controls.setLookAt(2.2, 1.6, 3.2, 0, 0.9, 0, false)
     this.apply()
@@ -124,6 +126,35 @@ export class Rig {
   setPreferences(preferences: NavigationPreferences): void {
     this.preferences = preferences
     this.apply()
+  }
+
+  beginShortcutDrag(action: CameraDrag): ((deltaX: number, deltaY: number) => void) | null {
+    if (this.locked || this.active) return null
+    const controls = this.controls
+    let started = false
+    return (deltaX, deltaY) => {
+      const height = this.canvas.clientHeight
+      if (this.locked || height === 0 || (deltaX === 0 && deltaY === 0)) return
+      if (!started) {
+        started = true
+        const position = controls.getPosition(new Vector3(), false)
+        const target = controls.getTarget(new Vector3(), false)
+        void controls.setLookAt(position.x, position.y, position.z, target.x, target.y, target.z)
+        if (action === 'turn') this.orbitAroundSelection()
+      }
+      if (action === 'pan') {
+        const halfHeight =
+          controls.distance * Math.tan(MathUtils.degToRad(this.camera.getEffectiveFOV()) / 2)
+        const scale = (controls.truckSpeed * halfHeight) / height
+        void controls.truck(-deltaX * scale, -deltaY * scale)
+      } else {
+        const scale = (-2 * Math.PI) / height
+        void controls.rotate(
+          deltaX * scale * controls.azimuthRotateSpeed,
+          deltaY * scale * controls.polarRotateSpeed,
+        )
+      }
+    }
   }
 
   setLocked(locked: boolean): void {
@@ -148,6 +179,34 @@ export class Rig {
     void this.controls.fitToSphere(sphere, animate)
   }
 
+  /** Fit within the unobstructed fraction of the camera's view. */
+  frameWithGuide(
+    sphere: Sphere,
+    width: number,
+    height: number,
+    animate: boolean,
+    direction = this.controls
+      .getPosition(new Vector3())
+      .sub(this.controls.getTarget(new Vector3())),
+  ): void {
+    if (this.locked) return
+    const halfFov = MathUtils.degToRad(this.camera.getEffectiveFOV()) / 2
+    const angle = Math.atan(Math.tan(halfFov) * Math.min(width * this.camera.aspect, height))
+    const distance = sphere.radius / Math.sin(angle)
+    const target = sphere.center
+    const position = direction.normalize().multiplyScalar(distance).add(target)
+    this.controls.smoothTime = 0.13
+    void this.controls.setLookAt(
+      position.x,
+      position.y,
+      position.z,
+      target.x,
+      target.y,
+      target.z,
+      animate,
+    )
+  }
+
   /** Whether a drag of the controls' own is under way, so a click is no pick. */
   get active(): boolean {
     return this.controls.currentAction !== ACTION.NONE
@@ -165,8 +224,9 @@ export class Rig {
     this.controls.dollySpeed = ZOOM * zoomSpeed
   }
 
-  private pivot(): Vector3 | null {
-    return this.preferences.pivot === 'selection' ? this.selectionCenter() : null
+  private orbitAroundSelection(): void {
+    const pivot = this.preferences.pivot === 'selection' ? this.selectionCenter() : null
+    if (pivot) this.controls.setOrbitPoint(pivot.x, pivot.y, pivot.z)
   }
 
   private listen(): () => void {
@@ -201,26 +261,23 @@ export class Rig {
       if (this.locked) return
       const button = buttonOf(event)
       if (!button) return
-      if (button === 'left' && !event.altKey) {
-        // The controls sit a plain press of the main button out: it picks joints.
+      const held = { shift: event.shiftKey, ctrl: event.ctrlKey }
+      const actions = {
+        left: event.altKey ? altDragOf('left') : null,
+        middle: event.altKey ? altDragOf('middle') : dragOf(this.preferences, 'middle', held),
+        right: event.altKey ? altDragOf('right') : dragOf(this.preferences, 'right', held),
+      }
+      const does = actions[button]
+      if (!does) {
         controls.enabled = false
         return
       }
-      const held = { shift: event.shiftKey, ctrl: event.ctrlKey }
-      const does: Drag = event.altKey
-        ? altDragOf(button)
-        : dragOf(this.preferences, button as Button, held)
-      controls.mouseButtons.left = event.altKey ? DRAGGED[altDragOf('left')] : ACTION.NONE
-      controls.mouseButtons.middle =
-        DRAGGED[event.altKey ? altDragOf('middle') : dragOf(this.preferences, 'middle', held)]
-      controls.mouseButtons.right =
-        DRAGGED[event.altKey ? altDragOf('right') : dragOf(this.preferences, 'right', held)]
+      controls.mouseButtons.left = actions.left ? DRAGGED[actions.left] : ACTION.NONE
+      controls.mouseButtons.middle = DRAGGED[actions.middle]
+      controls.mouseButtons.right = DRAGGED[actions.right]
       controls.smoothTime = 0
       if (does === 'zoom') zooming = { x: event.clientX, y: event.clientY, last: event.clientY }
-      else if (does === 'turn') {
-        const about = this.pivot()
-        if (about) controls.setOrbitPoint(about.x, about.y, about.z)
-      }
+      else if (does === 'turn') this.orbitAroundSelection()
     }
     const drag = (event: PointerEvent) => {
       if (!zooming || this.locked) return

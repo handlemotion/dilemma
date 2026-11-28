@@ -1,10 +1,9 @@
-import { Select } from '@base-ui/react/select'
 import { setSceneTiming, type SceneTiming } from '@dilemma/core'
 import type { ReactNode } from 'react'
 import { editor } from '../editor.ts'
-import { Icon } from '../icons/central.tsx'
 import { COMPOSITION_GRIDS, SHADING_MODES, useUi } from '../ui-store.ts'
 import { InspectorSection } from './inspector-section.tsx'
+import { InspectorSelect } from './inspector-select.tsx'
 import { NumberField } from './number-field.tsx'
 
 function commitTiming(field: keyof SceneTiming, value: number) {
@@ -59,7 +58,7 @@ export function SceneInspector({ timing }: { timing: SceneTiming }) {
       </SettingsGroup>
       <SettingsGroup title="Viewport">
         <Setting label="Shading">
-          <SettingSelect
+          <InspectorSelect
             label="Shading"
             value={viewport.shading}
             items={SHADING_MODES}
@@ -77,7 +76,7 @@ export function SceneInspector({ timing }: { timing: SceneTiming }) {
           onChange={(cameraFrame) => setViewport({ cameraFrame })}
         />
         <Setting label="Composition grid">
-          <SettingSelect
+          <InspectorSelect
             label="Composition grid"
             value={viewport.compositionGrid}
             items={COMPOSITION_GRIDS}
@@ -140,51 +139,5 @@ function SettingSwitch({
         <span className="size-3 rounded-full bg-current shadow-xs" />
       </span>
     </label>
-  )
-}
-
-function SettingSelect<T extends string>({
-  label,
-  value,
-  items,
-  onChange,
-}: {
-  label: string
-  value: T
-  items: readonly { value: T; label: string }[]
-  onChange(value: T): void
-}) {
-  return (
-    <Select.Root
-      items={items}
-      value={value}
-      onValueChange={(next) => next !== null && onChange(next)}
-    >
-      <Select.Trigger
-        aria-label={label}
-        className="flex h-6 min-w-0 items-center justify-between gap-1 rounded-md bg-raised px-2 text-left hover:bg-control-hover"
-      >
-        <Select.Value className="truncate" />
-        <Select.Icon className="shrink-0 text-faint" aria-hidden="true">
-          <Icon name="chevronDown" size={12} />
-        </Select.Icon>
-      </Select.Trigger>
-      <Select.Portal>
-        <Select.Positioner align="end" sideOffset={4} alignItemWithTrigger={false} className="z-50">
-          <Select.Popup className="min-w-[var(--anchor-width)] rounded-md border border-line bg-raised p-1 text-xs shadow-xl">
-            {items.map((item) => (
-              <Select.Item
-                key={item.value}
-                value={item.value}
-                data-tinted={item.value === value || undefined}
-                className="selection-tint relative isolate cursor-default rounded-sm px-2 py-1 outline-none data-highlighted:bg-control"
-              >
-                <Select.ItemText>{item.label}</Select.ItemText>
-              </Select.Item>
-            ))}
-          </Select.Popup>
-        </Select.Positioner>
-      </Select.Portal>
-    </Select.Root>
   )
 }

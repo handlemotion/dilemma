@@ -1,21 +1,26 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MenuAction } from '../electron/ipc.ts'
 import { exportAnimation, importCharacter, openProject, saveProject } from './actions.ts'
 import { deleteKeys, keySelection, newClip } from './animation.ts'
 import { bridge } from './bridge.ts'
+import { AnimationToolbar } from './components/animation-toolbar.tsx'
 import { AppMenuBar } from './components/app-menu-bar.tsx'
 import { Inspector } from './components/inspector.tsx'
 import { Outliner } from './components/outliner.tsx'
-import { PanelContent, PanelDropTarget, PanelHeader } from './components/panel-header.tsx'
+import {
+  PanelContent,
+  PanelDropTarget,
+  PanelHeader,
+  SideDockTabs,
+  SidePanel,
+  ViewportDropTargets,
+} from './components/panel-header.tsx'
 import { StatusBar } from './components/status-bar.tsx'
 import { Timeline } from './components/timeline.tsx'
-import {
-  MainToolbar,
-  ViewportTransformTools,
-  transformTools,
-} from './components/transform-tools.tsx'
+import { MainToolbar, transformTools } from './components/transform-tools.tsx'
 import {
   DEFAULT_TIMELINE_HEIGHT,
+  TIMELINE_HEADER_HEIGHT,
   TRACK_HEIGHT,
   keyframeInDirection,
   timelineHeight,
@@ -23,9 +28,10 @@ import {
 import { activeViewport, ViewportPanel } from './components/viewport-panel.tsx'
 import { ViewportMenuBar, WorkspaceToolRail } from './components/viewport-tools.tsx'
 import { ProjectTitleBar } from './components/window-controls.tsx'
-import { dockSide, panelTitles, type DockPanel, type DockSide } from './dock-layout.ts'
+import { dockBeforeViewport, dockSide, panelTitles, type DockSide } from './dock-layout.ts'
 import { editor, useEditorState } from './editor.ts'
 import { usePlayback } from './playback.ts'
+import { updateRigSetup } from './rig-setup.ts'
 import { useUi } from './ui-store.ts'
 
 const SIDE_PANEL_LIMIT = 0.34
@@ -59,23 +65,34 @@ export function App() {
   useShortcuts(runMenuAction)
   const sizes = useUi((s) => s.panelSizes)
   const layout = useUi((s) => s.dockLayout)
-  const outlinerOpen = useUi((s) => s.outlinerOpen)
-  const panelDragging = useUi((s) => s.draggedPanel !== null)
+  const draggedPanel = useUi((s) => s.draggedPanel)
+  const viewportPosition = useUi((s) => s.viewportPosition)
+  const panelDragging = draggedPanel !== null && draggedPanel !== 'viewport'
   const leftWidth = sizes.left === undefined ? 'clamp(184px, 22vw, 272px)' : `${sizes.left}px`
-  const rightWidth = sizes.right === undefined ? 'clamp(176px, 23vw, 272px)' : `${sizes.right}px`
+  const rightWidth = sizes.right === undefined ? 'clamp(272px, 32vw, 430px)' : `${sizes.right}px`
   const sideLimit = `${SIDE_PANEL_LIMIT * 100}vw`
-  const leftOpen = dockIsVisible(layout.left.active, outlinerOpen)
-  const rightOpen = dockIsVisible(layout.right.active, outlinerOpen)
-  const leftColumn = leftOpen ? `min(${leftWidth}, ${sideLimit})` : '0px'
-  const rightColumn = rightOpen ? `min(${rightWidth}, ${sideLimit})` : '0px'
+  const leftOpen = layout.left.panels.length > 0
+  const rightOpen = layout.right.panels.length > 0
+  const leftColumn = `[left-dock] ${leftOpen ? `min(${leftWidth}, ${sideLimit})` : '0px'}`
+  const rightColumn = `[right-dock] ${rightOpen ? `min(${rightWidth}, ${sideLimit})` : '0px'}`
+  const viewportColumn = '[viewport] minmax(0, 1fr)'
+  const workspaceColumns = {
+    left: `${viewportColumn} ${leftColumn} ${rightColumn}`,
+    center: `${leftColumn} ${viewportColumn} ${rightColumn}`,
+    right: `${leftColumn} ${rightColumn} ${viewportColumn}`,
+  }
   const timelineCharacter = useEditorState(({ doc, playhead }) => {
     const clip = doc.clips.find((item) => item.id === playhead.clipId)
     return doc.characters.find((character) => character.id === clip?.characterId)
   })
   const timelineExpanded = useUi((s) => s.expandedTimelineCharacterId === timelineCharacter?.id)
   const jointCount = timelineCharacter?.skeleton.joints.length ?? 0
-  const timelineMin = DEFAULT_TIMELINE_HEIGHT + (timelineExpanded && jointCount ? TRACK_HEIGHT : 0)
-  const timelineSize = timelineHeight(jointCount, timelineExpanded, sizes.timeline)
+  const timelineMin = timelineCharacter
+    ? DEFAULT_TIMELINE_HEIGHT + (timelineExpanded && jointCount ? TRACK_HEIGHT : 0)
+    : TIMELINE_HEADER_HEIGHT + 1
+  const timelineSize = timelineCharacter
+    ? timelineHeight(jointCount, timelineExpanded, sizes.timeline)
+    : timelineMin
   const loading = useUi((s) => s.loading)
   const [dragging, setDragging] = useState(false)
 
@@ -83,8 +100,8 @@ export function App() {
     <div
       className="grid h-full"
       style={{
-        gridTemplateColumns: `40px ${leftColumn} minmax(0, 1fr) ${rightColumn}`,
-        gridTemplateRows: `32px 40px minmax(0, 1fr) min(${timelineSize}px, max(${timelineMin}px, 55vh)) minmax(36px, auto)`,
+        gridTemplateColumns: `40px ${workspaceColumns[viewportPosition]}`,
+        gridTemplateRows: `32px 40px minmax(0, 1fr) 40px min(${timelineSize}px, max(${timelineMin}px, 55vh)) minmax(36px, auto)`,
       }}
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes('Files')) return
@@ -120,11 +137,13 @@ export function App() {
         <Outliner />
       </SidePanel>
 
-      <main className="relative col-start-3 row-start-3 flex min-h-0 min-w-0 flex-col overflow-hidden bg-viewport">
-        <ViewportMenuBar onFrame={() => runMenuAction('frame')} />
+      <main className="relative col-start-[viewport] row-start-3 flex min-h-0 min-w-0 flex-col overflow-hidden bg-viewport">
+        <ViewportMenuBar
+          onFrame={() => runMenuAction('frame')}
+          beginCameraDrag={(action) => activeViewport()?.beginCameraDrag(action) ?? null}
+        />
         <div className="relative min-h-0 flex-1">
           <ViewportPanel />
-          <ViewportTransformTools />
           {dragging && (
             <div
               aria-hidden="true"
@@ -144,7 +163,7 @@ export function App() {
             side="left"
             drop="stack"
             label="Dock left"
-            className="absolute inset-y-0 left-0 z-20 w-20"
+            className={`absolute inset-y-0 z-20 w-20 ${dockBeforeViewport('left', viewportPosition) ? 'left-0' : 'right-0'}`}
           />
         )}
         {panelDragging && !rightOpen && (
@@ -152,20 +171,26 @@ export function App() {
             side="right"
             drop="stack"
             label="Dock right"
-            className="absolute inset-y-0 right-0 z-20 w-20"
+            className={`absolute inset-y-0 z-20 w-20 ${dockBeforeViewport('right', viewportPosition) ? 'left-0' : 'right-0'}`}
           />
         )}
       </main>
 
       <SidePanel panel="inspector">
         <PanelHeader panel="inspector" />
-        <PanelContent panel="inspector" className="min-h-0 flex-1 overflow-auto">
+        <PanelContent panel="inspector" className="min-h-0 flex-1 overflow-auto p-1">
           <Inspector />
         </PanelContent>
       </SidePanel>
+      <SideDockFrame side="left" />
+      <SideDockFrame side="right" />
+      {draggedPanel === 'viewport' && <ViewportDropTargets />}
 
-      <div className="relative col-span-full min-h-0 min-w-0">
-        <PanelDivider panel="timeline" label="Resize timeline" min={timelineMin} />
+      <AnimationToolbar />
+      <div className="relative col-span-full row-start-5 min-h-0 min-w-0">
+        {timelineCharacter && (
+          <PanelDivider panel="timeline" label="Resize timeline" min={timelineMin} />
+        )}
         <Timeline />
       </div>
       <StatusBar />
@@ -173,43 +198,37 @@ export function App() {
   )
 }
 
-function dockIsVisible(panel: DockPanel | null, outlinerOpen: boolean) {
-  return panel === 'inspector' || (panel === 'outliner' && outlinerOpen)
-}
-
-function SidePanel({ panel, children }: { panel: DockPanel; children: ReactNode }) {
+function SideDockFrame({ side }: { side: DockSide }) {
   const layout = useUi((s) => s.dockLayout)
-  const outlinerOpen = useUi((s) => s.outlinerOpen)
   const dragged = useUi((s) => s.draggedPanel)
-  const side = dockSide(layout, panel)
-  const active = layout[side].active === panel && dockIsVisible(panel, outlinerOpen)
-  const left = side === 'left'
-  const receivingDrop = active && dragged && dockSide(layout, dragged) !== side
+  const viewportPosition = useUi((s) => s.viewportPosition)
+  const dock = layout[side]
+  const { panels } = dock
+  if (!panels.length) return null
+  const beforeViewport = dockBeforeViewport(side, viewportPosition)
+  const title = panelTitles[dock.active ?? panels[0]!]
+  const receivingDrop = dragged && dragged !== 'viewport' && dockSide(layout, dragged) !== side
   return (
-    <aside
-      id={panel === 'outliner' ? 'outliner-panel' : undefined}
-      aria-label={panelTitles[panel]}
-      hidden={!active}
-      className={`relative row-start-3 flex min-h-0 min-w-0 flex-col border-line bg-panel ${left ? 'col-start-2 border-r' : 'col-start-4 border-l'}`}
+    <div
+      className={`pointer-events-none relative z-10 row-start-3 min-h-0 min-w-0 border-line ${beforeViewport ? 'border-r' : 'border-l'}`}
+      style={{ gridColumnStart: side === 'left' ? 'left-dock' : 'right-dock' }}
     >
-      <PanelDivider
-        panel={side}
-        label={panel === 'outliner' ? 'Resize Outliner' : 'Resize Inspector'}
-        min={144}
-      />
-      {children}
+      <PanelDivider panel={side} label={`Resize ${title}`} min={144} growsRight={beforeViewport} />
+      {dock.panels.length > 1 && <SideDockTabs side={side} beforeViewport={beforeViewport} />}
       {receivingDrop && (
-        <div className={`absolute inset-0 z-20 flex ${left ? '' : 'flex-row-reverse'}`}>
+        <div
+          className={`pointer-events-auto absolute inset-x-0 top-8 bottom-0 z-20 flex ${beforeViewport ? '' : 'flex-row-reverse'}`}
+        >
           <PanelDropTarget side={side} drop="swap" label="Swap" className="w-12 shrink-0" />
           <PanelDropTarget
             side={side}
             drop="stack"
-            label={`Tab with ${panelTitles[panel]}`}
+            label="Stack vertically"
             className="min-w-0 flex-1"
           />
         </div>
       )}
-    </aside>
+    </div>
   )
 }
 
@@ -217,13 +236,14 @@ function PanelDivider({
   panel,
   label,
   min,
+  growsRight = false,
 }: {
   panel: DockSide | 'timeline'
   label: string
   min: number
+  growsRight?: boolean
 }) {
   const vertical = panel !== 'timeline'
-  const growsRight = panel === 'left'
   const drag = useRef<{ pointer: number; origin: number; size: number; moved: boolean } | null>(
     null,
   )
@@ -244,7 +264,7 @@ function PanelDivider({
       aria-label={label}
       aria-orientation={vertical ? 'vertical' : 'horizontal'}
       title="Drag to resize. Click to reset."
-      className={`absolute z-10 touch-none outline-none before:pointer-events-none before:absolute before:content-[''] hover:before:bg-accent data-resizing:before:bg-accent focus-visible:before:bg-accent ${
+      className={`pointer-events-auto absolute z-10 touch-none outline-none before:pointer-events-none before:absolute before:content-[''] hover:before:bg-accent data-resizing:before:bg-accent focus-visible:before:bg-accent ${
         vertical
           ? `inset-y-0 w-2 cursor-col-resize before:inset-y-0 before:w-px ${growsRight ? '-right-1 before:right-[3px]' : '-left-1 before:left-[3px]'}`
           : 'inset-x-0 -top-1 h-2 cursor-row-resize before:inset-x-0 before:h-px before:top-1'
@@ -318,16 +338,24 @@ function useShortcuts(run: (action: MenuAction) => void): void {
       const clip = doc.clips.find((item) => item.id === playhead.clipId)
       if (!clip) return
       useUi.getState().setPlaying(false)
-      const frame = keyframeInDirection(clip, playhead.frame, direction, selection.joints)
+      const frame = keyframeInDirection(
+        clip,
+        playhead.frame,
+        direction,
+        selection.joints,
+        doc.characters.find((character) => character.id === clip.characterId),
+      )
       if (frame !== undefined) editor.setPlayhead({ frame })
     }
     const isEditing = (target: EventTarget | null) =>
       target instanceof HTMLElement &&
       (target.isContentEditable ||
         target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement)
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        target.closest('[role="dialog"]') !== null)
     const onSpace = (e: KeyboardEvent) => {
-      if (e.code !== 'Space' && e.key !== ' ') return
+      if (useUi.getState().rigSetup || (e.code !== 'Space' && e.key !== ' ')) return
       if (
         e.target instanceof Element &&
         e.target.closest(
@@ -350,6 +378,13 @@ function useShortcuts(run: (action: MenuAction) => void): void {
       )
         return
       const mod = e.metaKey || e.ctrlKey
+      const setup = useUi.getState().rigSetup
+      if (setup && !mod) {
+        if (e.key === 'Escape' && setup.pickRole) {
+          updateRigSetup({ pickRole: null, error: null })
+        } else if (e.key.toLowerCase() === 'f') run('frame')
+        return
+      }
       const tool =
         !mod && !e.altKey && !e.isComposing
           ? transformTools.find(({ shortcut }) => shortcut === e.key.toLowerCase())

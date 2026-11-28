@@ -4,7 +4,9 @@
  * rotations as unit quaternions [x, y, z, w]. Key times are integer frames.
  */
 
-export const DOCUMENT_VERSION = 4
+import type { ControlId, Effector, RigMapping } from './rig.ts'
+
+export const DOCUMENT_VERSION = 5
 
 export type Vec3 = [number, number, number]
 export type Quat = [number, number, number, number]
@@ -33,6 +35,7 @@ export interface Character {
   /** Where the mesh, skin weights and shapes come from. The document stores the reference, not the data. */
   source: { uri: string }
   skeleton: Skeleton
+  rig?: RigMapping
 }
 
 /** Integer frames in ascending order, with one flattened value per frame. */
@@ -48,7 +51,13 @@ export type TransformKey =
   | { channel: 'rotations'; value: Quat }
   | { channel: 'scales'; value: Vec3 }
 
-export type PoseKey = TransformKey | { channel: 'ikTarget'; value: Vec3 }
+export type ControlKey = { channel: 'control'; control: ControlId; value: Vec3 | Quat }
+export type PoseKey = TransformKey | ControlKey | { channel: 'ikTarget'; value: Vec3 }
+
+export interface EffectorPin {
+  position: Vec3
+  rotation: Quat
+}
 
 /** One two-bone limb per clip. The target is a world-space position in meters. */
 export interface LimbTrack {
@@ -79,6 +88,8 @@ export interface Clip {
   end: number
   tracks: JointTrack[]
   limb?: LimbTrack
+  controls?: Partial<Record<ControlId, KeyChannel>>
+  pins?: Partial<Record<Effector, EffectorPin>>
 }
 
 export type SceneTiming = Pick<Clip, 'fps' | 'start' | 'end'>

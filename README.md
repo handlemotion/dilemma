@@ -10,7 +10,7 @@ Contacts live on the timeline. "Hand grips the cup from frame 20 to 48" is a cli
 
 ## Where it is now
 
-You can import a skinned glTF, play its clips, and pose and key joints in FK. The app saves editable projects and exports a baked GLB of the active clip. Humanoid controls and full-body IK come next, followed by contacts, motion paths, and the Maya and Blender bridges. [docs/roadmap.md](docs/roadmap.md) has the rest of the plan.
+You can import a skinned glTF, play its clips, and key joints in FK or use humanoid Pose controls. The app saves editable projects and exports the active clip as baked GLB or FBX animation. [docs/roadmap.md](docs/roadmap.md) has the rest of the plan.
 
 ## Running it
 
@@ -24,6 +24,8 @@ pnpm dev
 Keep the `pnpm dev` desktop window open while working on the UI. Vite applies style and React component edits there as you save. Changes to the Electron main process or preload take effect after restarting the dev app.
 
 Press ⌘O or drop a `.glb` or `.gltf` on the window. The camera moves the way Maya's does, Alt with the left, middle or right button turns, pans or zooms. On a trackpad a two-finger swipe turns and a pinch zooms. F frames the selection, Space plays, and the arrow keys step one frame. The Navigation menu in the toolbar switches the mouse buttons to Blender's layout or a trackpad-first one.
+
+A character import opens **Rig setup** in Properties. Walk through Body, Hands, and Feet to check the suggested joints. Use **Pick** to choose a joint in the viewport, or leave a role unmapped to skip that control. When all seven matches are found, setup opens on Review. Select **Start Posing** to confirm the controls. **Skip setup** keeps the character available for joint editing. In **Pose** mode, drag the blue handles or choose a named control in Properties. Pin a hand or foot from its row to hold it for the clip, then drag the hips. Select a limb to show its bend handle. **Display → Skeleton in Pose Mode** shows the underlying joints.
 
 Select a joint and drag a rotation ring to write a key at the playhead. Use **New clip** to start a fresh animation, **Set key** or S to key the current rotation, and **Delete keys** to remove rotation keys at the playhead or in a selected range. Use **File → Save Project** (⌘S) and **File → Open Project** (⇧⌘O) for `.dilemma` files. Project files reference the original character assets by path, so keep those files and any sibling textures or buffers available. **Export GLB** writes a standalone copy of the character with the active clip baked into it.
 

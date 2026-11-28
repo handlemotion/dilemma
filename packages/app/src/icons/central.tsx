@@ -1,8 +1,17 @@
 // Artwork © David & Storm GbR – Iconists. Licensed under https://iconists.co/license.
 // Glyphs from @central-icons-react/round-outlined-radius-3-stroke-1.5@1.2.39.
-// Pause, play, and skip use @central-icons-react/round-filled-radius-3-stroke-1.5@1.2.39.
+// Checkmark, pause, play, and skip use @central-icons-react/round-filled-radius-1-stroke-1.5@1.2.39.
 
+// Confirm Rig, Export Animation, Pin Effector, and Pose are original Dilemma glyphs.
 const glyphs = {
+  checkmarkFilled: (
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M17.7406 7.1827C18.0539 7.45363 18.0882 7.92725 17.8173 8.24057L10.4673 16.7406C10.3305 16.8988 10.1339 16.9926 9.92494 16.9996C9.71594 17.0066 9.51353 16.9259 9.36654 16.7772L6.21654 13.5897C5.92539 13.2951 5.9282 12.8202 6.22282 12.5291C6.51744 12.2379 6.9923 12.2407 7.28346 12.5353L9.86327 15.1458L16.6827 7.25945C16.9536 6.94613 17.4272 6.91177 17.7406 7.1827Z"
+      fill="currentColor"
+    />
+  ),
   chevronDown: (
     <path
       d="M5.75 9.5L12 15.75L18.25 9.5"
@@ -39,6 +48,38 @@ const glyphs = {
       />
     </>
   ),
+  confirmRig: (
+    <>
+      <path
+        d="M7.25 4.25C8.375 4.25 9.25 5.125 9.25 6.25C9.25 7.375 8.375 8.25 7.25 8.25C6.125 8.25 5.25 7.375 5.25 6.25C5.25 5.125 6.125 4.25 7.25 4.25C7.25 4.25 7.25 4.25 7.25 4.25"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M7.25 15.75C8.375 15.75 9.25 16.625 9.25 17.75C9.25 18.875 8.375 19.75 7.25 19.75C6.125 19.75 5.25 18.875 5.25 17.75C5.25 16.625 6.125 15.75 7.25 15.75C7.25 15.75 7.25 15.75 7.25 15.75"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M20.25 11.25C20.25 11.25 15.25 16.25 15.25 16.25C15.25 16.25 12.75 13.75 12.75 13.75C12.75 13.75 12.75 13.75 12.75 13.75C12.75 13.75 12.75 13.75 12.75 13.75C12.75 13.75 12.75 13.75 12.75 13.75"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M7.25 8.25C7.25 8.25 7.25 15.75 7.25 15.75C7.25 15.75 7.25 15.75 7.25 15.75C7.25 15.75 7.25 15.75 7.25 15.75C7.25 15.75 7.25 15.75 7.25 15.75C7.25 15.75 7.25 15.75 7.25 15.75"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </>
+  ),
   expandAll: (
     <>
       <path
@@ -50,6 +91,56 @@ const glyphs = {
       />
       <path
         d="M16 15L12.8839 18.1161C12.3957 18.6043 11.6043 18.6043 11.1161 18.1161L8 15"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </>
+  ),
+  exportAnimation: (
+    <>
+      <path
+        d="M3.75 13.75C3.75 13.75 3.75 17.25 3.75 17.25C3.75 19 5 20.25 6.75 20.25C6.75 20.25 17.25 20.25 17.25 20.25C19 20.25 20.25 19 20.25 17.25C20.25 17.25 20.25 13.75 20.25 13.75"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 3.75C12 3.75 12 14.25 12 14.25C12 14.25 12 14.25 12 14.25C12 14.25 12 14.25 12 14.25C12 14.25 12 14.25 12 14.25C12 14.25 12 14.25 12 14.25"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 3.75C12 3.75 7.75 8 7.75 8C7.75 8 7.75 8 7.75 8C7.75 8 7.75 8 7.75 8C7.75 8 7.75 8 7.75 8C7.75 8 7.75 8 7.75 8"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 3.75C12 3.75 16.25 8 16.25 8C16.25 8 16.25 8 16.25 8C16.25 8 16.25 8 16.25 8C16.25 8 16.25 8 16.25 8C16.25 8 16.25 8 16.25 8"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </>
+  ),
+  eyedropper: (
+    <>
+      <path
+        d="M15 5L4.04289 15.9571C3.85536 16.1446 3.75 16.399 3.75 16.6642V19.25C3.75 19.8023 4.19772 20.25 4.75 20.25H7.33579C7.601 20.25 7.85536 20.1446 8.04289 19.9571L19 9C20.1046 7.89543 20.1046 6.10457 19 5C17.8954 3.89543 16.1046 3.89543 15 5Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10 7L17 14"
         stroke="currentColor"
         strokeWidth="1.5"
         strokeLinecap="round"
@@ -150,20 +241,84 @@ const glyphs = {
   pause: (
     <>
       <path
-        d="M7 3C5.34315 3 4 4.34315 4 6V18C4 19.6569 5.34315 21 7 21C8.65685 21 10 19.6569 10 18V6C10 4.34315 8.65685 3 7 3Z"
+        d="M5.75 3C4.7835 3 4 3.7835 4 4.75V19.25C4 20.2165 4.7835 21 5.75 21H8.25C9.2165 21 10 20.2165 10 19.25V4.75C10 3.7835 9.2165 3 8.25 3H5.75Z"
         fill="currentColor"
       />
       <path
-        d="M17 3C15.3431 3 14 4.34315 14 6V18C14 19.6569 15.3431 21 17 21C18.6569 21 20 19.6569 20 18V6C20 4.34315 18.6569 3 17 3Z"
+        d="M15.75 3C14.7835 3 14 3.7835 14 4.75V19.25C14 20.2165 14.7835 21 15.75 21H18.25C19.2165 21 20 20.2165 20 19.25V4.75C20 3.7835 19.2165 3 18.25 3H15.75Z"
         fill="currentColor"
+      />
+    </>
+  ),
+  pinEffector: (
+    <>
+      <path
+        d="M12 7C12 7 7.5 11 7.5 11C7.5 11 4.75 11.75 4.75 11.75C4.75 11.75 12.25 19.25 12.25 19.25C12.25 19.25 13 16.5 13 16.5C13 16.5 17 12 17 12"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.25 4.25C9.25 4.25 19.75 14.75 19.75 14.75C19.75 14.75 19.75 14.75 19.75 14.75C19.75 14.75 19.75 14.75 19.75 14.75C19.75 14.75 19.75 14.75 19.75 14.75C19.75 14.75 19.75 14.75 19.75 14.75"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8.5 15.5C8.5 15.5 4 20 4 20C4 20 4 20 4 20C4 20 4 20 4 20C4 20 4 20 4 20C4 20 4 20 4 20"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 7C12 7 12 7 12 7C12 7 12 7 12 7C12 7 12 7 12 7C12 7 12 7 12 7C12 7 12 7 12 7"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </>
   ),
   play: (
     <path
-      d="M10.7998 2.6507C8.30554 1.02248 5 2.81218 5 5.79087V18.209C5 21.1877 8.30553 22.9774 10.7998 21.3492L20.3116 15.1401C22.5785 13.6603 22.5785 10.3395 20.3116 8.85977L10.7998 2.6507Z"
+      d="M7.65703 2.27884C6.49076 1.57201 5 2.41169 5 3.77543V20.2247C5 21.5884 6.49076 22.4281 7.65703 21.7213L21.2276 13.4966C22.3516 12.8155 22.3516 11.1846 21.2276 10.5035L7.65703 2.27884Z"
       fill="currentColor"
     />
+  ),
+  pose: (
+    <>
+      <path
+        d="M19.75 8.75C19.75 8.75 16.25 11.75 16.25 11.75C16.25 11.75 12 10.25 12 10.25C12 10.25 8.25 12.75 8.25 12.75C8.25 12.75 4.25 10.75 4.25 10.75C4.25 10.75 4.25 10.75 4.25 10.75"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 3.5C13.25 3.5 14.25 4.5 14.25 5.75C14.25 7.0 13.25 8.0 12 8.0C10.75 8.0 9.75 7.0 9.75 5.75C9.75 4.5 10.75 3.5 12 3.5C12 3.5 12 3.5 12 3.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 10.25C12 10.25 12 15 12 15C12 15 8.25 17.25 8.25 17.25C8.25 17.25 6.25 20.25 6.25 20.25C6.25 20.25 6.25 20.25 6.25 20.25C6.25 20.25 6.25 20.25 6.25 20.25"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 15C12 15 16.25 17 16.25 17C16.25 17 18.5 20.25 18.5 20.25C18.5 20.25 18.5 20.25 18.5 20.25C18.5 20.25 18.5 20.25 18.5 20.25C18.5 20.25 18.5 20.25 18.5 20.25"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </>
   ),
   redo: (
     <>
@@ -238,11 +393,11 @@ const glyphs = {
   skip: (
     <>
       <path
-        d="M7.55779 4.41841C6.06859 3.36641 4 4.4192 4 6.22912V17.7709C4 19.5808 6.06857 20.6336 7.55778 19.5816L15.7271 13.8108C16.9834 12.9233 16.9834 11.0768 15.7271 10.1893L7.55779 4.41841Z"
+        d="M5.93824 4.13538C5.10716 3.58721 4 4.18326 4 5.17884V18.8213C4 19.8169 5.10716 20.413 5.93824 19.8648L16.2801 13.0436C17.0291 12.5495 17.0291 11.4507 16.2801 10.9566L5.93824 4.13538Z"
         fill="currentColor"
       />
       <path
-        d="M20 4.82998C20 4.42033 19.6642 4.08824 19.25 4.08824C18.8358 4.08824 18.5 4.42033 18.5 4.82998V19.1701C18.5 19.5798 18.8358 19.9118 19.25 19.9118C19.6642 19.9118 20 19.5798 20 19.1701V4.82998Z"
+        d="M20 4.75009C20 4.33588 19.6642 4.00009 19.25 4.00009C18.8358 4.00009 18.5 4.33588 18.5 4.75009V19.2501C18.5 19.6643 18.8358 20.0001 19.25 20.0001C19.6642 20.0001 20 19.6643 20 19.2501V4.75009Z"
         fill="currentColor"
       />
     </>

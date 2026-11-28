@@ -1,5 +1,5 @@
-import type { PoseKey } from '@dilemma/core'
-import { applyLimb } from './limb.ts'
+import { CONTROL_IDS, EFFECTORS, type PoseKey } from '@dilemma/core'
+import { applyLimb, multiplyQuaternion } from './limb.ts'
 import {
   LOCAL_STRIDE,
   WORLD_STRIDE,
@@ -12,6 +12,7 @@ import {
 export interface PosePreview {
   local: Float64Array
   ik: Pick<Pose['ik'], 'tip' | 'target'> | null
+  controls: (Float64Array | undefined)[]
 }
 
 export function compilePosePreview(
@@ -20,11 +21,14 @@ export function compilePosePreview(
 ): PosePreview {
   const local = new Float64Array(jointCount * LOCAL_STRIDE).fill(NaN)
   let ik: PosePreview['ik'] = null
+  const controls: PosePreview['controls'] = []
   for (const { joint, key } of edits) {
     if (key.channel === 'ikTarget') ik = { tip: joint, target: Float64Array.from(key.value) }
+    else if (key.channel === 'control')
+      controls[CONTROL_IDS.indexOf(key.control)] = Float64Array.from(key.value)
     else local.set(key.value, joint * LOCAL_STRIDE + localOffsets[key.channel])
   }
-  return { local, ik }
+  return { local, ik, controls }
 }
 
 const localOffsets = { translations: 0, rotations: 3, scales: 7 } as const
@@ -50,6 +54,16 @@ export function solvePose(
       if (!Number.isNaN(value)) pose.local[i] = value
     }
   }
+  pose.authored.set(pose.local)
+  for (let i = 0; i < 3; i++) {
+    const joint = skeleton.controls[i]!
+    if (joint < 0) continue
+    const offset = joint * LOCAL_STRIDE + (i === 0 ? 0 : 3)
+    const edit = preview?.controls[i]
+    const channel = clip?.controls[i]
+    if (edit) pose.local.set(edit, offset)
+    else if (channel) sampleChannel(channel, frame, pose.local, offset, i === 0 ? lerp3 : slerp)
+  }
   computeWorld(skeleton, pose)
   pose.ik.tip = -1
   if (preview?.ik) {
@@ -59,8 +73,136 @@ export function solvePose(
     pose.ik.tip = clip.limb.tip
     sampleChannel(clip.limb.targets, frame, pose.ik.target, 0, lerp3)
   }
-  pose.ik.applied = pose.ik.tip >= 0 && applyLimb(skeleton, pose)
+  const legacyControl = pose.ik.tip < 0 ? -1 : skeleton.controls.indexOf(pose.ik.tip, 3) - 3
+  const legacyOverridden =
+    legacyControl >= 0 &&
+    legacyControl < EFFECTORS.length &&
+    !!(
+      clip?.controls[legacyControl + 3] ||
+      preview?.controls[legacyControl + 3] ||
+      clip?.pins[legacyControl] ||
+      clip?.controls[legacyControl + 7] ||
+      preview?.controls[legacyControl + 7]
+    )
+  pose.ik.applied = pose.ik.tip >= 0 && !legacyOverridden && applyLimb(skeleton, pose)
   if (pose.ik.applied) computeWorld(skeleton, pose)
+  solveControls(skeleton, clip, frame, pose, preview)
+}
+
+function solveControls(
+  skeleton: CompiledSkeleton,
+  clip: CompiledClip | null,
+  frame: number,
+  pose: Pose,
+  preview?: PosePreview,
+): void {
+  const {
+    controlPositions,
+    pinned,
+    ik: { scratch },
+  } = pose
+  pinned.fill(0)
+  for (let limb = 0; limb < EFFECTORS.length; limb++) {
+    const index = limb + 3
+    const bendIndex = limb + 7
+    const tip = skeleton.controls[index]!
+    if (tip < 0) continue
+    const { effectorTarget: target, effectorPole: pole } = scratch
+    const pin = clip?.pins[limb]
+    const edit = preview?.controls[index]
+    const channel = clip?.controls[index]
+    const bendEdit = preview?.controls[bendIndex]
+    const bendChannel = clip?.controls[bendIndex]
+    if (pin) {
+      pinned[index] = 1
+      for (let axis = 0; axis < 3; axis++) target[axis] = pin[axis]!
+    } else if (edit) target.set(edit)
+    else if (channel) sampleChannel(channel, frame, target, 0, lerp3)
+    else if (pose.ik.tip === tip) target.set(pose.ik.target)
+    else worldPoint(pose, tip, target, 0)
+
+    if (bendEdit) pole.set(bendEdit)
+    else if (bendChannel) sampleChannel(bendChannel, frame, pole, 0, lerp3)
+
+    if (pin || edit || channel || bendEdit || bendChannel) {
+      const solved = applyLimb(
+        skeleton,
+        pose,
+        tip,
+        target,
+        bendEdit || bendChannel ? pole : undefined,
+      )
+      if (pin) {
+        jointRotation(skeleton, pose, skeleton.parents[tip]!, scratch.ancestor)
+        for (let axis = 0; axis < 3; axis++) scratch.ancestor[axis] = -scratch.ancestor[axis]!
+        multiplyQuaternion(pose.local, tip * LOCAL_STRIDE + 3, scratch.ancestor, 0, pin, 3)
+      }
+      if (solved || pin) computeWorld(skeleton, pose)
+    }
+    controlPositions.set(target, index * 3)
+    if (bendEdit || bendChannel) controlPositions.set(pole, bendIndex * 3)
+    else bendMarker(skeleton, pose, tip, bendIndex * 3)
+  }
+  for (let i = 0; i < 3; i++) {
+    const joint = skeleton.controls[i]!
+    if (joint >= 0) worldPoint(pose, joint, controlPositions, i * 3)
+  }
+}
+
+function worldPoint(pose: Pose, joint: number, out: Float64Array, offset: number): void {
+  for (let axis = 0; axis < 3; axis++)
+    out[offset + axis] = pose.world[joint * WORLD_STRIDE + 12 + axis]!
+}
+
+/** Place the bend handle beyond the middle joint along its current bend direction. */
+function bendMarker(skeleton: CompiledSkeleton, pose: Pose, tip: number, offset: number): void {
+  const middle = skeleton.parents[tip]!
+  const root = skeleton.parents[middle]!
+  const {
+    controlPositions,
+    ik: {
+      scratch: { upper, aim },
+    },
+  } = pose
+  worldPoint(pose, root, upper, 0)
+  worldPoint(pose, tip, aim, 0)
+  for (let i = 0; i < 3; i++) aim[i] = aim[i]! - upper[i]!
+  const length = Math.hypot(aim[0]!, aim[1]!, aim[2]!)
+  if (length > 0) {
+    for (let i = 0; i < 3; i++) aim[i] = aim[i]! / length
+  }
+  worldPoint(pose, middle, controlPositions, offset)
+  for (let i = 0; i < 3; i++) upper[i] = controlPositions[offset + i]! - upper[i]!
+  const projection = upper[0]! * aim[0]! + upper[1]! * aim[1]! + upper[2]! * aim[2]!
+  const upperLength = Math.hypot(upper[0]!, upper[1]!, upper[2]!)
+  for (let i = 0; i < 3; i++) upper[i] = upper[i]! - aim[i]! * projection
+  let bend = Math.hypot(upper[0]!, upper[1]!, upper[2]!)
+  if (bend <= upperLength * 1e-6) {
+    const axis = Math.abs(aim[2]!) > 0.9 ? 1 : 2
+    for (let i = 0; i < 3; i++) upper[i] = Number(i === axis) - aim[i]! * aim[axis]!
+    bend = Math.hypot(upper[0]!, upper[1]!, upper[2]!)
+  }
+  if (bend > 0) {
+    for (let i = 0; i < 3; i++) {
+      controlPositions[offset + i] =
+        controlPositions[offset + i]! + upper[i]! * ((upperLength * 0.45) / bend)
+    }
+  }
+}
+
+export function jointRotation(
+  skeleton: CompiledSkeleton,
+  pose: Pose,
+  joint: number,
+  out: Float64Array,
+): void {
+  out.fill(0)
+  out[3] = 1
+  for (let i = joint; i >= 0; i = skeleton.parents[i]!) {
+    multiplyQuaternion(out, 0, pose.local, i * LOCAL_STRIDE + 3, out, 0)
+  }
+  const length = Math.hypot(out[0]!, out[1]!, out[2]!, out[3]!) || 1
+  for (let i = 0; i < 4; i++) out[i] = out[i]! / length
 }
 
 export function sampleClip(clip: CompiledClip, frame: number, local: Float64Array): void {

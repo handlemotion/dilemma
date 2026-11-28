@@ -1,12 +1,15 @@
 import { Menu } from '@base-ui/react/menu'
 import { Menubar } from '@base-ui/react/menubar'
-import { Fragment, type ReactNode } from 'react'
-import { dockSide } from '../dock-layout.ts'
+import type { CameraDrag } from '@dilemma/view'
+import { Fragment, useRef, type ReactNode } from 'react'
 import { COMPOSITION_GRIDS, SHADING_MODES, useUi, type ViewportSettings } from '../ui-store.ts'
-import { LimbIkTool } from './transform-tools.tsx'
+import { ViewportGrip } from './panel-header.tsx'
+import { ViewportPoseTools, ViewportTransformTools } from './transform-tools.tsx'
 
 const glyphs = {
-  outliner: 'M5 5h4v4H5zm10 5h4v4h-4zm0 7h4v4h-4zM7 9v10h8m-8-7h8',
+  pan: 'M9 12V6a1.5 1.5 0 0 1 3 0v5m0-1V4.5a1.5 1.5 0 0 1 3 0V11m0-1V6a1.5 1.5 0 0 1 3 0v6m0-1a1.5 1.5 0 0 1 3 0v1a6 6 0 0 1-6 6h-1a6 6 0 0 1-4.5-2L4.3 14A1.6 1.6 0 0 1 6.6 12L9 14',
+  orbit:
+    'M19.9 9.3c1.4 1.4 1.9 2.9 1.2 4.1C20 15.5 15 16.8 10 16.2S1.8 13.4 3 11.2c.4-.8 1.3-1.4 2.5-1.9M17 12a5 5 0 1 0-10 0 5 5 0 0 0 10 0Zm-3 7 3-3-3-3',
   frame: 'M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5M9 9h6v6H9z',
   lock: 'M6 11h12v9H6zm2 0V8a4 4 0 0 1 8 0v3m-4 4v1',
   unlock: 'M6 11h12v9H6zm2 0V8a4 4 0 0 1 7.8-1.2M12 15v1',
@@ -16,16 +19,12 @@ const glyphs = {
   check: 'm5 12 4 4L19 6',
 }
 
-const cameraActionClass =
-  'selection-tint relative isolate grid size-6 shrink-0 place-items-center rounded-sm text-muted enabled:hover:bg-control enabled:hover:text-ink disabled:text-faint disabled:opacity-50'
+const cameraActionClass = 'shell-icon shell-toggle size-6 rounded-sm disabled:opacity-50'
 
 const menuItemClass =
   'selection-tint relative isolate flex cursor-default items-center gap-1.5 rounded-sm px-2 py-1 text-ink outline-none data-highlighted:bg-control data-disabled:opacity-50'
 
 export function WorkspaceToolRail() {
-  const outlinerVisible = useUi(
-    (s) => s.outlinerOpen && s.dockLayout[dockSide(s.dockLayout, 'outliner')].active === 'outliner',
-  )
   return (
     <div
       data-animation-tools
@@ -34,29 +33,100 @@ export function WorkspaceToolRail() {
       aria-orientation="vertical"
       className="col-start-1 row-start-3 flex min-h-0 flex-col items-center gap-1 overflow-y-auto border-r border-line bg-shell p-1 [scrollbar-width:none]"
     >
-      <button
-        type="button"
-        className="shell-icon shell-rail-icon selection-tint relative isolate"
-        aria-label="Outliner"
-        aria-expanded={outlinerVisible}
-        aria-controls="outliner-panel"
-        title={outlinerVisible ? 'Hide Outliner' : 'Show Outliner'}
-        data-tinted={outlinerVisible || undefined}
-        onClick={() => useUi.getState().toggleOutliner()}
-      >
-        <Glyph name="outliner" />
-      </button>
+      <ViewportTransformTools />
       <span aria-hidden="true" className="my-1 w-4 shrink-0 border-t border-line" />
-      <LimbIkTool />
+      <ViewportPoseTools />
     </div>
   )
 }
 
-function ViewportActions({ onFrame }: { onFrame(): void }) {
+type CameraMove = (deltaX: number, deltaY: number) => void
+
+interface ViewportMenuProps {
+  onFrame(): void
+  beginCameraDrag(action: CameraDrag): CameraMove | null
+}
+
+const cameraArrowKeys: Partial<Record<string, [number, number]>> = {
+  ArrowLeft: [-12, 0],
+  ArrowRight: [12, 0],
+  ArrowUp: [0, -12],
+  ArrowDown: [0, 12],
+}
+
+function CameraDragButton({
+  action,
+  label,
+  disabled,
+  beginCameraDrag,
+}: {
+  action: CameraDrag
+  label: string
+  disabled: boolean
+  beginCameraDrag: ViewportMenuProps['beginCameraDrag']
+}) {
+  const drag = useRef<{ pointer: number; x: number; y: number; move: CameraMove } | null>(null)
+  return (
+    <button
+      type="button"
+      className={`${cameraActionClass} touch-none enabled:cursor-grab enabled:active:cursor-grabbing`}
+      aria-label={label}
+      aria-description="Drag this button, or use the arrow keys when focused."
+      title={`Drag to ${label.toLowerCase()}`}
+      disabled={disabled}
+      onPointerDown={(event) => {
+        if (!event.isPrimary || event.button !== 0 || drag.current) return
+        const move = beginCameraDrag(action)
+        if (!move) return
+        event.currentTarget.setPointerCapture(event.pointerId)
+        drag.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY, move }
+      }}
+      onPointerMove={(event) => {
+        const current = drag.current
+        if (!current || current.pointer !== event.pointerId) return
+        current.move(event.clientX - current.x, event.clientY - current.y)
+        current.x = event.clientX
+        current.y = event.clientY
+      }}
+      onLostPointerCapture={(event) => {
+        if (drag.current?.pointer === event.pointerId) drag.current = null
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && drag.current) {
+          event.stopPropagation()
+          event.currentTarget.releasePointerCapture(drag.current.pointer)
+          drag.current = null
+          return
+        }
+        const delta = cameraArrowKeys[event.key]
+        if (!delta || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+        event.preventDefault()
+        event.stopPropagation()
+        beginCameraDrag(action)?.(...delta)
+      }}
+    >
+      <Glyph name={action === 'pan' ? 'pan' : 'orbit'} />
+    </button>
+  )
+}
+
+function ViewportActions({ onFrame, beginCameraDrag }: ViewportMenuProps) {
   const settings = useUi((s) => s.viewportSettings)
   const setSettings = useUi((s) => s.setViewportSettings)
   return (
     <div role="toolbar" aria-label="Viewport shortcuts" className="ms-auto flex shrink-0 gap-1">
+      <CameraDragButton
+        action="pan"
+        label="Pan camera"
+        disabled={settings.cameraLocked}
+        beginCameraDrag={beginCameraDrag}
+      />
+      <CameraDragButton
+        action="turn"
+        label="Orbit camera"
+        disabled={settings.cameraLocked}
+        beginCameraDrag={beginCameraDrag}
+      />
       <button
         type="button"
         className={cameraActionClass}
@@ -66,7 +136,7 @@ function ViewportActions({ onFrame }: { onFrame(): void }) {
         disabled={settings.cameraLocked}
         onClick={onFrame}
       >
-        <Glyph name="frame" size={16} />
+        <Glyph name="frame" />
       </button>
       <button
         type="button"
@@ -76,7 +146,7 @@ function ViewportActions({ onFrame }: { onFrame(): void }) {
         title={settings.cameraLocked ? 'Unlock camera' : 'Lock camera'}
         onClick={() => setSettings({ cameraLocked: !settings.cameraLocked })}
       >
-        <Glyph name={settings.cameraLocked ? 'lock' : 'unlock'} size={16} />
+        <Glyph name={settings.cameraLocked ? 'lock' : 'unlock'} />
       </button>
       <button
         type="button"
@@ -86,7 +156,7 @@ function ViewportActions({ onFrame }: { onFrame(): void }) {
         title="Camera focus (16:9)"
         onClick={() => setSettings({ cameraFrame: !settings.cameraFrame })}
       >
-        <Glyph name="focus" size={16} />
+        <Glyph name="focus" />
       </button>
       <ViewportMenu
         label="Viewport guides"
@@ -102,14 +172,12 @@ function ViewportActions({ onFrame }: { onFrame(): void }) {
   )
 }
 
-export function ViewportMenuBar({ onFrame }: { onFrame(): void }) {
+export function ViewportMenuBar({ onFrame, beginCameraDrag }: ViewportMenuProps) {
   const { cameraLocked, cameraFrame } = useUi((s) => s.viewportSettings)
   const setSettings = useUi((s) => s.setViewportSettings)
   return (
-    <div
-      data-animation-tools
-      className="flex h-7 shrink-0 items-center gap-1 border-b border-line bg-panel px-1"
-    >
+    <div data-animation-tools className="workspace-header">
+      <ViewportGrip />
       <Menubar
         aria-label="Viewport menu"
         modal={false}
@@ -139,7 +207,7 @@ export function ViewportMenuBar({ onFrame }: { onFrame(): void }) {
           <ShadingItems />
         </ViewportMenu>
       </Menubar>
-      <ViewportActions onFrame={onFrame} />
+      <ViewportActions onFrame={onFrame} beginCameraDrag={beginCameraDrag} />
     </div>
   )
 }
@@ -168,7 +236,7 @@ function ViewportToggle({
 }
 
 function GuideItems() {
-  const { floorGrid, compositionGrid } = useUi((s) => s.viewportSettings)
+  const { floorGrid, compositionGrid, skeletonInPose } = useUi((s) => s.viewportSettings)
   const setSettings = useUi((s) => s.setViewportSettings)
   return (
     <>
@@ -176,6 +244,11 @@ function GuideItems() {
         label="Floor grid"
         value={floorGrid}
         onChange={(value) => setSettings({ floorGrid: value })}
+      />
+      <ViewportToggle
+        label="Skeleton in Pose Mode"
+        value={skeletonInPose}
+        onChange={(value) => setSettings({ skeletonInPose: value })}
       />
       <Menu.Separator className="my-1 border-t border-line" />
       <Menu.RadioGroup
@@ -292,9 +365,9 @@ function ViewportMenu({
         }
         aria-label={label}
         title={label}
-        data-tinted={active || undefined}
+        data-icon-active={active || undefined}
       >
-        {icon ? <Glyph name={icon} size={16} /> : label}
+        {icon ? <Glyph name={icon} /> : label}
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Positioner
@@ -320,7 +393,7 @@ function Checkmark({ checked }: { checked: boolean }) {
   )
 }
 
-function Glyph({ name, size = 20 }: { name: keyof typeof glyphs; size?: number }) {
+function Glyph({ name, size = 16 }: { name: keyof typeof glyphs; size?: number }) {
   return (
     <svg
       aria-hidden="true"

@@ -5,6 +5,7 @@ import { activeClip } from './animation.ts'
 import { bridge } from './bridge.ts'
 import { rememberBrowserSource } from './browser-session.ts'
 import { editor } from './editor.ts'
+import { closeRigSetup, openRigSetup } from './rig-setup.ts'
 import { useUi } from './ui-store.ts'
 import { FBX_BAKE_FPS, type OpenedFile } from '../electron/ipc.ts'
 
@@ -57,6 +58,7 @@ export function importCharacter(file?: File | OpenedFile): Promise<void> {
       useUi.getState().addAssets(imported.character.id, imported.assets)
       if (browserFile) rememberBrowserSource(imported.character.id, browserFile)
       editor.run(addCharacter(imported.character, imported.clips))
+      openRigSetup(imported.character)
     } finally {
       if (browserUrl) URL.revokeObjectURL(browserUrl)
     }
@@ -109,11 +111,15 @@ export function openProject(): Promise<void> {
     ui.setPlaying(false)
     ui.setTransformDraft(null)
     ui.setTimelineRange(null)
+    closeRigSetup()
     ui.setWorkArea(null)
     ui.setPreviewFrame(restored.sceneTiming.start)
     ui.setAssets(assets)
     savedProject = JSON.stringify(restored)
     editor.load(restored)
+    const active =
+      restored.characters.find((c) => c.id === activeClip()?.characterId) ?? restored.characters[0]
+    if (active?.rig?.confirmed && Object.keys(active.rig.joints).length) ui.setTransformMode('ik')
     ui.setProjectPath(opened.path)
   })
 }
@@ -145,7 +151,7 @@ export function exportAnimation(format: 'glb' | 'fbx' = 'glb'): Promise<void> {
       .doc.characters.find((entry) => entry.id === clip.characterId)
     const assets = useUi.getState().assets.get(clip.characterId)
     if (!character || !assets) throw new Error('The clip has no loaded character.')
-    const skeleton = compileSkeleton(character.skeleton)
+    const skeleton = compileSkeleton(character.skeleton, character.rig)
     const compiled = compileClip(clip, skeleton.count)
     const pose = createPose(skeleton)
     const bake = format === 'fbx' ? { ...clip, fps: FBX_BAKE_FPS } : clip

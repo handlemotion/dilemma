@@ -3,11 +3,14 @@ import {
   type Clip,
   type JointRef,
   type PoseKey,
+  type RigMapping,
+  type RigRole,
   type SceneTiming,
 } from '@dilemma/core'
 import type {
   TransformMode,
   TransformPreview,
+  ViewportControlHover,
   ViewportDisplay,
   ViewportMarquee,
 } from '@dilemma/view'
@@ -22,6 +25,8 @@ import {
   type DockLayout,
   type DockPanel,
   type DockSide,
+  type ViewportPosition,
+  type WorkspaceDrag,
 } from './dock-layout.ts'
 
 export const PLAYBACK_SPEEDS = [0.25, 0.5, 1, 1.5, 2] as const
@@ -63,6 +68,16 @@ export interface TransformDraft {
   key: PoseKey | null
 }
 
+export interface RigSetupDraft {
+  characterId: string
+  step: number | null
+  confirmedSteps: readonly number[]
+  joints: RigMapping['joints']
+  previewRole: RigRole | null
+  pickRole: RigRole | null
+  error: string | null
+}
+
 export interface ViewportSettings extends ViewportDisplay {
   cameraFrame: boolean
   compositionGrid: 'none' | 'thirds' | 'golden'
@@ -84,11 +99,13 @@ export const COMPOSITION_GRIDS = [
 interface UiState {
   outlinerFocus: string | null
   setOutlinerFocus(focus: string | null): void
-  outlinerOpen: boolean
-  toggleOutliner(): void
   dockLayout: DockLayout
-  draggedPanel: DockPanel | null
-  setDraggedPanel(panel: DockPanel | null): void
+  collapsedDockPanels: Partial<Record<DockPanel, boolean>>
+  toggleDockPanel(panel: DockPanel): void
+  draggedPanel: WorkspaceDrag | null
+  setDraggedPanel(panel: WorkspaceDrag | null): void
+  viewportPosition: ViewportPosition
+  moveViewport(position: ViewportPosition): void
   activatePanel(panel: DockPanel): void
   moveDockPanel(panel: DockPanel, side: DockSide, drop: DockDrop): void
   inspectorExpansion: Partial<Record<string, boolean>>
@@ -112,6 +129,8 @@ interface UiState {
   setPlaybackSpeed(speed: PlaybackSpeed): void
   autoKey: boolean
   setAutoKey(autoKey: boolean): void
+  showMotionTrails: boolean
+  setShowMotionTrails(visible: boolean): void
   unkeyedTransforms: readonly TransformPreview[]
   setUnkeyedTransforms(transforms: readonly TransformPreview[]): void
   loading: string | null
@@ -120,8 +139,11 @@ interface UiState {
   projectDirty: boolean
   viewportSettings: ViewportSettings
   setViewportSettings(settings: Partial<ViewportSettings>): void
+  hoveredControl: ViewportControlHover | null
+  setHoveredControl(hover: ViewportControlHover | null): void
   viewportMarquee: ViewportMarquee | null
   setViewportMarquee(rect: ViewportMarquee | null): void
+  rigSetup: RigSetupDraft | null
   transformMode: TransformMode
   setTransformMode(mode: TransformMode): void
   transformDraft: TransformDraft | null
@@ -141,27 +163,24 @@ interface UiState {
 export const useUi = create<UiState>((set) => ({
   outlinerFocus: null,
   setOutlinerFocus: (outlinerFocus) => set({ outlinerFocus }),
-  outlinerOpen: false,
-  toggleOutliner: () =>
-    set(({ dockLayout, outlinerOpen }) => {
-      const side = dockSide(dockLayout, 'outliner')
-      const dock = dockLayout[side]
-      const closing = outlinerOpen && dock.active === 'outliner'
-      const active = closing && dock.panels.includes('inspector') ? 'inspector' : 'outliner'
-      return {
-        outlinerOpen: !closing,
-        dockLayout: { ...dockLayout, [side]: { ...dock, active } },
-      }
-    }),
   dockLayout: defaultDockLayout,
+  collapsedDockPanels: {},
+  toggleDockPanel: (panel) =>
+    set(({ collapsedDockPanels }) => ({
+      collapsedDockPanels: { ...collapsedDockPanels, [panel]: !collapsedDockPanels[panel] },
+    })),
   draggedPanel: null,
   setDraggedPanel: (draggedPanel) => set({ draggedPanel }),
+  viewportPosition: 'center',
+  moveViewport: (viewportPosition) => set({ viewportPosition, draggedPanel: null }),
   activatePanel: (panel) =>
-    set(({ dockLayout, outlinerOpen }) => {
+    set(({ dockLayout, collapsedDockPanels }) => {
       const side = dockSide(dockLayout, panel)
       return {
-        outlinerOpen: outlinerOpen || panel === 'outliner',
         dockLayout: { ...dockLayout, [side]: { ...dockLayout[side], active: panel } },
+        collapsedDockPanels: collapsedDockPanels[panel]
+          ? { ...collapsedDockPanels, [panel]: false }
+          : collapsedDockPanels,
       }
     }),
   moveDockPanel: (panel, side, drop) =>
@@ -195,6 +214,8 @@ export const useUi = create<UiState>((set) => ({
   setPlaybackSpeed: (playbackSpeed) => set({ playbackSpeed }),
   autoKey: true,
   setAutoKey: (autoKey) => set({ autoKey }),
+  showMotionTrails: false,
+  setShowMotionTrails: (showMotionTrails) => set({ showMotionTrails }),
   unkeyedTransforms: [],
   setUnkeyedTransforms: (unkeyedTransforms) => set({ unkeyedTransforms }),
   loading: null,
@@ -205,13 +226,18 @@ export const useUi = create<UiState>((set) => ({
     cameraLocked: false,
     floorGrid: true,
     shading: 'materials',
+    skeletonInPose: false,
     cameraFrame: false,
     compositionGrid: 'none',
   },
   setViewportSettings: (settings) =>
     set((state) => ({ viewportSettings: { ...state.viewportSettings, ...settings } })),
+  hoveredControl: null,
+  setHoveredControl: (hoveredControl) =>
+    set((state) => (state.hoveredControl === hoveredControl ? state : { hoveredControl })),
   viewportMarquee: null,
   setViewportMarquee: (viewportMarquee) => set({ viewportMarquee }),
+  rigSetup: null,
   transformMode: 'rotate',
   setTransformMode: (transformMode) => set({ transformMode }),
   transformDraft: null,

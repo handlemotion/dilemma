@@ -3,6 +3,7 @@ import { setClipTiming, type Clip } from '@dilemma/core'
 import type { ReactNode } from 'react'
 import { keySelection } from '../animation.ts'
 import { editor, useEditorState } from '../editor.ts'
+import { ActionIcon } from '../icons/action.tsx'
 import { Icon } from '../icons/central.tsx'
 import { PLAYBACK_SPEEDS, resolveWorkArea, useUi } from '../ui-store.ts'
 import { NumberField } from './number-field.tsx'
@@ -83,7 +84,7 @@ export function StatusBar() {
           </p>
           <button
             type="button"
-            className="shrink-0 rounded px-1 py-0.5 text-red-800 underline hover:bg-red-50"
+            className="shrink-0 rounded px-1 py-0.5 text-red-800 underline hover:bg-control"
             onClick={() => useUi.getState().setError(null)}
           >
             Dismiss
@@ -91,7 +92,12 @@ export function StatusBar() {
         </div>
       )}
       <div className="ms-auto flex flex-wrap items-center gap-1 whitespace-nowrap">
-        <div role="group" aria-label="Keying" className="flex items-center gap-1">
+        <div
+          role="group"
+          aria-label="Keying"
+          data-action-group="keying"
+          className="flex items-center gap-1"
+        >
           {hasUnkeyed && (
             <span
               role="status"
@@ -109,7 +115,7 @@ export function StatusBar() {
             disabled={!hasSelection || hasDraft}
             onClick={keySelection}
           >
-            <Icon name="keyframe" size={14} />
+            <ActionIcon name="setKey" />
             Set Key
           </button>
           <FooterToggle
@@ -218,7 +224,7 @@ function FooterToggle({
   return (
     <button
       type="button"
-      className="shell-action selection-tint relative isolate gap-1.5 aria-pressed:text-ink"
+      className="shell-action shell-toggle gap-1.5 aria-pressed:text-ink"
       aria-pressed={pressed}
       title={title}
       onClick={onToggle}
@@ -240,7 +246,7 @@ function PlaybackSpeed() {
         if (value !== null) useUi.getState().setPlaybackSpeed(value)
       }}
     >
-      <Select.Trigger aria-label="Playback speed" className="shell-field hover:bg-control-hover">
+      <Select.Trigger aria-label="Playback speed" className="shell-field hover:bg-control">
         <span className="shell-field-cell text-muted" aria-hidden="true">
           Speed
         </span>

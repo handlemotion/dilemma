@@ -40,6 +40,6 @@ The skinned characters the import tests use come from the Khronos glTF Sample As
 
 ## Central Icons
 
-The interface embeds selected Central Icons from `@central-icons-react/round-outlined-radius-3-stroke-1.5` and `@central-icons-react/round-filled-radius-3-stroke-1.5`, both version `1.2.39`. The glyphs in `packages/app/src/icons/` are copyright © David & Storm GbR – Iconists and are covered by the [Iconists license](https://iconists.co/license).
+The interface embeds selected Central Icons from `@central-icons-react/round-outlined-radius-3-stroke-1.5` and `@central-icons-react/round-filled-radius-1-stroke-1.5`, both version `1.2.39`. The glyphs in `packages/app/src/icons/` are copyright © David & Storm GbR – Iconists and are covered by the [Iconists license](https://iconists.co/license).
 
 The desktop package includes this notice and the Pierre Trees license and notice at `licenses/pierre-trees/`.

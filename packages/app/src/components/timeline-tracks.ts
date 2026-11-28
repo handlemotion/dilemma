@@ -1,15 +1,30 @@
-import { TRANSFORM_CHANNELS, type Character, type Clip, type JointRef } from '@dilemma/core'
+import {
+  CONTROL_IDS,
+  CONTROL_LABELS,
+  controlJoint,
+  TRANSFORM_CHANNELS,
+  type ControlId,
+  type Character,
+  type Clip,
+  type JointRef,
+} from '@dilemma/core'
 
 export const TRACK_HEIGHT = 36
 export const TIMELINE_HEADER_HEIGHT = 36
 export const DEFAULT_TIMELINE_HEIGHT = TIMELINE_HEADER_HEIGHT + TRACK_HEIGHT + 1
 
-export type TimelineRowId = 'preview' | 'character' | 'ik' | `joint:${string}`
+export type TimelineRowId =
+  | 'preview'
+  | 'character'
+  | 'ik'
+  | `joint:${string}`
+  | `control:${ControlId}`
 
 export interface TimelineRow {
   id: TimelineRowId
   name: string
   joint: number | null
+  control?: ControlId
   depth: number
   frames: readonly number[]
 }
@@ -42,8 +57,24 @@ export function timelineRows(character: Character, clip: Clip): TimelineRow[] {
   const limb = clip.limb
   const tip = limb && joints[limb.tip]
   if (limb && tip) for (const frame of limb.targets.frames) summary.add(frame)
+  const controls = CONTROL_IDS.flatMap((id): TimelineRow[] => {
+    const frames = clip.controls?.[id]?.frames
+    if (!frames?.length) return []
+    for (const frame of frames) summary.add(frame)
+    return [
+      {
+        id: `control:${id}`,
+        name: CONTROL_LABELS[id],
+        control: id,
+        depth: 1,
+        frames,
+        joint: controlJoint(character.skeleton, character.rig, id) ?? null,
+      },
+    ]
+  })
   const rows: TimelineRow[] = [
     { id: 'character', name: character.name, joint: null, depth: 0, frames: sortedFrames(summary) },
+    ...controls,
   ]
   if (limb && tip) {
     rows.push({
@@ -105,6 +136,7 @@ export function keyframeInDirection(
   frame: number,
   direction: -1 | 1,
   selection: readonly JointRef[],
+  character?: Character,
 ): number | undefined {
   const joints = new Set(
     selection.filter((ref) => ref.characterId === clip.characterId).map((ref) => ref.joint),
@@ -118,6 +150,18 @@ export function keyframeInDirection(
         : frames?.find((key) => key > frame && inClip(key))
     if (candidate !== undefined && (nearest === undefined || (candidate - nearest) * direction < 0))
       nearest = candidate
+  }
+  for (const id of CONTROL_IDS) {
+    const joint = character ? controlJoint(character.skeleton, character.rig, id) : undefined
+    if (
+      joints.size === 0 ||
+      selection.some(
+        (ref) =>
+          ref.characterId === clip.characterId &&
+          (ref.control ? ref.control === id : ref.joint === joint),
+      )
+    )
+      consider(clip.controls?.[id]?.frames)
   }
   const limb = clip.limb
   if (limb && (joints.size === 0 || joints.has(limb.tip))) consider(limb.targets.frames)

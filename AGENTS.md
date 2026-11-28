@@ -29,7 +29,8 @@ There are five packages under `packages/`, and a package only imports the ones b
 9. A full pose solve for a 70-joint humanoid takes under 2 ms. A test measures it.
 10. UI state lives in zustand. Document state never does.
 11. Tint selected rows, timeline keys, and menu items by multiplying a translucent brand-blue layer over the item and its contents. Keep text, icons, and controls visible under the tint.
-12. Action buttons and idle mode tools sit flat and borderless. Show their button fill on hover. Give the active viewport tool a solid brand-blue fill and white icon. Use the filled field style for property inputs.
+12. Large toolbar icon buttons use white fills without borders. Compact icon buttons sit flat at rest. Selected icon buttons use a light blue fill. Color workflow glyphs by action group and keep transport glyphs neutral. Use the filled field style for property inputs.
+13. Buttons must be icon-only. Visible button text is prohibited. Give each button an accessible name and a tooltip. Group buttons only when their actions are related.
 
 ## License and reuse
 

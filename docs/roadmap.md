@@ -45,9 +45,10 @@ We reuse what's good at loading, drawing, picking and collision, three.js for sk
 
 Further out, if it turns out to be useful, Dilemma could get a panel for talking to a coding agent.
 
+Pose keys use stable control IDs. Existing FK animation uses joint tracks. GLB and FBX export bake the solved pose to joint animation.
+
 ## Still open
 
-- Whether keys live on the controls or on the joints. Keys on controls keep the Maya round trip editable, keys on joints keep export simple. We need to settle it before M3.
 - How FBX export works for the animators on Maya, headless Blender or something else.
 - The project file's extension and what the format is called.
 - Windows. It's macOS only for now.

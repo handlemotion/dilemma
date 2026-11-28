@@ -1,3 +1,4 @@
+import { RIG_ROLES } from '@dilemma/core'
 import { WORLD_STRIDE, type CompiledSkeleton, type Pose } from '@dilemma/solve'
 import {
   BufferAttribute,
@@ -10,7 +11,9 @@ import {
   LineSegments,
   Matrix4,
   MeshBasicMaterial,
+  PerspectiveCamera,
   SphereGeometry,
+  Vector3,
 } from 'three'
 
 const IDLE = new Color('#0c8ce9')
@@ -21,8 +24,10 @@ export class JointOverlay {
   readonly group = new Group()
   private dots: InstancedMesh
   private lines: LineSegments
+  private preview: InstancedMesh<SphereGeometry, MeshBasicMaterial>
   private positions: Float32Array
   private matrix = new Matrix4()
+  private point = new Vector3()
 
   constructor(
     private skeleton: CompiledSkeleton,
@@ -62,12 +67,50 @@ export class JointOverlay {
     )
     this.lines.renderOrder = 1000
     this.lines.frustumCulled = false
-    this.group.add(this.lines, this.dots)
+    this.preview = new InstancedMesh(
+      new SphereGeometry(1, 14, 10),
+      new MeshBasicMaterial({
+        color: SELECTED,
+        depthTest: false,
+        depthWrite: false,
+        allowOverride: false,
+      }),
+      RIG_ROLES.length,
+    )
+    this.preview.renderOrder = 1002
+    this.preview.frustumCulled = false
+    this.preview.visible = false
+    this.group.add(this.lines, this.dots, this.preview)
   }
 
-  update(pose: Pose): void {
-    const { count, parents } = this.skeleton
+  update(
+    pose: Pose,
+    showSkeleton: boolean,
+    previewJoints: readonly number[] | undefined,
+    camera: PerspectiveCamera,
+    viewportHeight: number,
+  ): void {
+    this.group.visible = showSkeleton || Boolean(previewJoints?.length)
+    this.lines.visible = showSkeleton
+    this.dots.visible = showSkeleton
+    this.preview.visible = Boolean(previewJoints?.length)
     const w = pose.world
+    if (previewJoints?.length) {
+      const slope = Math.tan((camera.getEffectiveFOV() * Math.PI) / 360)
+      const radiusPerDepth = (2 * slope * 6) / Math.max(1, viewportHeight)
+      this.preview.count = previewJoints.length
+      for (const [index, joint] of previewJoints.entries()) {
+        const offset = joint * WORLD_STRIDE + 12
+        const depth = -this.point.fromArray(w, offset).applyMatrix4(camera.matrixWorldInverse).z
+        const radius = Math.max(depth, 0) * radiusPerDepth
+        this.matrix.makeScale(radius, radius, radius)
+        this.matrix.setPosition(this.point.fromArray(w, offset))
+        this.preview.setMatrixAt(index, this.matrix)
+      }
+      this.preview.instanceMatrix.needsUpdate = true
+    }
+    if (!showSkeleton) return
+    const { count, parents } = this.skeleton
     for (let i = 0; i < count; i++) {
       const o = i * WORLD_STRIDE
       this.matrix.makeTranslation(w[o + 12]!, w[o + 13]!, w[o + 14]!)
@@ -94,6 +137,9 @@ export class JointOverlay {
   }
 
   dispose(): void {
+    this.preview.material.dispose()
+    this.preview.geometry.dispose()
+    this.preview.dispose()
     this.dots.geometry.dispose()
     ;(this.dots.material as MeshBasicMaterial).dispose()
     this.dots.dispose()

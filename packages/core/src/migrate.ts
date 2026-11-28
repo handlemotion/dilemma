@@ -4,7 +4,9 @@ import {
   limbRoot,
   validSceneTiming,
   type DilemmaDocument,
+  type Skeleton,
 } from './document.ts'
+import { CONTROL_IDS, controlKind, EFFECTORS, validRigMapping, type RigMapping } from './rig.ts'
 
 /**
  * One migration per version. `migrations[n]` upgrades a version-n document to
@@ -36,6 +38,8 @@ const migrations: Record<number, (doc: Record<string, unknown>) => Record<string
   // Version 3 adds an optional IK target track. Existing clips are FK.
   2: (doc) => doc,
   3: (doc) => ({ ...doc, sceneTiming: { ...DEFAULT_SCENE_TIMING } }),
+  // Version 5 adds optional rig mappings, control tracks and pins.
+  4: (doc) => doc,
 }
 
 export class DocumentVersionError extends Error {}
@@ -144,6 +148,12 @@ function validateDocument(doc: Record<string, unknown>): void {
       numbers(rest['scale'], 3)
       return parent
     })
+    if (character['rig'] !== undefined) {
+      const rig = object(character['rig'])
+      if (typeof rig['confirmed'] !== 'boolean') invalid()
+      object(rig['joints'])
+      if (!validRigMapping({ joints } as Skeleton, rig as unknown as RigMapping)) invalid()
+    }
     skeletons.set(id, parents)
   }
   const ids = new Set<string>()
@@ -168,6 +178,24 @@ function validateDocument(doc: Record<string, unknown>): void {
       for (const name of channels) {
         if (track[name] === undefined) continue
         validateChannel(track[name], name === 'rotations' ? 4 : 3, start, end)
+      }
+    }
+    if (clip['controls'] !== undefined) {
+      for (const [name, channel] of Object.entries(object(clip['controls']))) {
+        const control = CONTROL_IDS.find((entry) => entry === name)
+        if (
+          !control ||
+          !validateChannel(channel, controlKind(control) === 'rotation' ? 4 : 3, start, end)
+        )
+          invalid()
+      }
+    }
+    if (clip['pins'] !== undefined) {
+      for (const [name, rawPin] of Object.entries(object(clip['pins']))) {
+        if (!EFFECTORS.some((effector) => effector === name)) invalid()
+        const pin = object(rawPin)
+        numbers(pin['position'], 3)
+        numbers(pin['rotation'], 4)
       }
     }
     if (clip['limb'] !== undefined) {

@@ -1,6 +1,6 @@
 import type { Clip, Skeleton, Vec3 } from '@dilemma/core'
 import { describe, expect, it } from 'vitest'
-import { compilePosePreview, solvePose } from './pose.ts'
+import { compilePosePreview, jointRotation, solvePose } from './pose.ts'
 import { compileClip, compileSkeleton, createPose, WORLD_STRIDE } from './skeleton.ts'
 
 const s = Math.SQRT1_2
@@ -125,6 +125,59 @@ describe('solvePose', () => {
       expect(z).toBeCloseTo(0, 10)
       expect(Math.hypot(mx!, my! - 1, mz!)).toBeCloseTo(0.2, 10)
       expect(Math.hypot(x! - mx!, y! - my!, z! - mz!)).toBeCloseTo(0.1, 10)
+    }
+  })
+
+  it('holds two feet under keyed hips and aims an authored knee bend independently', () => {
+    const rig = chain(7)
+    rig.joints[1]!.rest.translation = [-0.15, 0, 0]
+    rig.joints[4]!.rest.translation = [0.15, 0, 0]
+    rig.joints[4]!.parent = 0
+    for (const joint of [2, 5]) rig.joints[joint]!.rest.translation = [0, -0.4, 0.04]
+    for (const joint of [3, 6]) rig.joints[joint]!.rest.translation = [0, -0.4, -0.04]
+    const skeleton = compileSkeleton(rig, {
+      confirmed: true,
+      joints: { hips: 0, leftFoot: 3, rightFoot: 6 },
+    })
+    const left: Vec3 = [-0.15, 0.2, 0]
+    const right: Vec3 = [0.15, 0.2, 0]
+    const clip = compileClip(
+      {
+        id: 'c',
+        name: 'Pose',
+        characterId: 'x',
+        fps: 30,
+        start: 0,
+        end: 10,
+        tracks: [],
+        controls: {
+          hips: { frames: [0, 10], values: [0, 1, 0, 0, 0.85, 0] },
+          rightKnee: { frames: [0], values: [0.15, 0.6, -0.4] },
+        },
+        pins: {
+          leftFoot: { position: left, rotation: [0, 0, 0, 1] },
+          rightFoot: { position: right, rotation: [0, s, 0, s] },
+        },
+      },
+      skeleton.count,
+    )
+    const pose = createPose(skeleton)
+    for (const frame of [10, 0, 5, 10]) {
+      solvePose(skeleton, clip, frame, pose)
+      expect(position(pose.world, 0)[1]).toBeCloseTo(1 - 0.015 * frame)
+      for (const [joint, point] of [
+        [3, left],
+        [6, right],
+      ] as const) {
+        position(pose.world, joint).forEach((value, axis) =>
+          expect(value).toBeCloseTo(point[axis]!, 10),
+        )
+      }
+      const orientation = new Float64Array(4)
+      jointRotation(skeleton, pose, 6, orientation)
+      expect(Math.abs(s * (orientation[1]! + orientation[3]!))).toBeCloseTo(1, 10)
+      expect(position(pose.world, 2)[2]).toBeGreaterThan(0.03)
+      expect(position(pose.world, 5)[2]).toBeLessThan(-0.03)
     }
   })
 

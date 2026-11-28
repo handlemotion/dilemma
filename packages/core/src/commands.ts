@@ -4,6 +4,8 @@ import {
   type Character,
   type Clip,
   type DilemmaDocument,
+  type ControlKey,
+  type EffectorPin,
   type JointTrack,
   type KeyChannel,
   type Quat,
@@ -12,6 +14,14 @@ import {
   type TransformKey,
   type Vec3,
 } from './document.ts'
+import {
+  controlJoint,
+  controlKind,
+  validRigMapping,
+  type ControlId,
+  type Effector,
+  type RigMapping,
+} from './rig.ts'
 
 /**
  * Every change to the document is a command. `apply` returns the next
@@ -55,6 +65,86 @@ export function addCharacter(character: Character, clips: Clip[] = []): Command 
       }
     },
   }
+}
+
+export function setRigMapping(id: string, rig: RigMapping | undefined): Command {
+  return {
+    label: 'Confirm rig',
+    apply(doc) {
+      const index = doc.characters.findIndex((character) => character.id === id)
+      const character = doc.characters[index]
+      if (!character || (rig && !validRigMapping(character.skeleton, rig))) {
+        throw new Error('Choose a distinct, valid joint for each rig role.')
+      }
+      const updated = { ...character }
+      if (rig) updated.rig = rig
+      else delete updated.rig
+      const characters = [...doc.characters]
+      characters[index] = updated
+      return { doc: { ...doc, characters }, inverse: setRigMapping(id, character.rig) }
+    },
+  }
+}
+
+export function setControlKey(target: Clip | string, frame: number, key: ControlKey): Command {
+  return editPoseClip(target, 'Set pose key', (clip, character) => {
+    if (controlJoint(character.skeleton, character.rig, key.control) === undefined) {
+      throw new Error('Confirm the rig before keying this control.')
+    }
+    if (!Number.isInteger(frame) || frame < clip.start || frame > clip.end) {
+      throw new Error('The key must be on an integer frame within the clip.')
+    }
+    const width = controlKind(key.control) === 'rotation' ? 4 : 3
+    if (key.value.length !== width || !key.value.every(Number.isFinite)) {
+      throw new Error('The pose key has invalid values.')
+    }
+    return {
+      ...clip,
+      controls: {
+        ...clip.controls,
+        [key.control]: insertKey(clip.controls?.[key.control], frame, key.value),
+      },
+    }
+  })
+}
+
+export function setEffectorPin(
+  target: Clip | string,
+  control: Effector,
+  pin: EffectorPin | undefined,
+): Command {
+  return editPoseClip(target, pin ? 'Pin effector' : 'Unpin effector', (clip, character) => {
+    if (controlJoint(character.skeleton, character.rig, control) === undefined) {
+      throw new Error('Confirm the rig before pinning this effector.')
+    }
+    const pins = { ...clip.pins }
+    if (pin) {
+      if (
+        pin.position.length !== 3 ||
+        pin.rotation.length !== 4 ||
+        !pin.position.every(Number.isFinite) ||
+        !pin.rotation.every(Number.isFinite)
+      ) {
+        throw new Error('The effector pin has invalid values.')
+      }
+      pins[control] = pin
+    } else delete pins[control]
+    return { ...clip, pins }
+  })
+}
+
+function editPoseClip(
+  target: Clip | string,
+  label: string,
+  edit: (clip: Clip, character: Character) => Clip,
+): Command {
+  const id = typeof target === 'string' ? target : target.id
+  return editClip(id, label, (current, doc) => {
+    const clip = current ?? (typeof target === 'string' ? undefined : target)
+    const character = doc.characters.find((entry) => entry.id === clip?.characterId)
+    if (!clip || !character) throw new Error('The clip has no character.')
+    return edit(clip, character)
+  })
 }
 
 export function removeCharacter(id: string): Command {
@@ -116,6 +206,7 @@ export function setClipTiming(
     }
     if (
       excludesKeys(clip.limb?.targets) ||
+      Object.values(clip.controls ?? {}).some(excludesKeys) ||
       clip.tracks.some((track) =>
         TRANSFORM_CHANNELS.some((channel) => excludesKeys(track[channel])),
       )
@@ -229,13 +320,17 @@ export function deleteClipKeys(
   {
     channels = TRANSFORM_CHANNELS,
     limb = false,
+    controls = [],
   }: {
     channels?: readonly TransformChannel[]
     limb?: boolean
+    controls?: readonly ControlId[]
   } = {},
 ): Command {
   const label =
-    !limb && channels.length === 1 ? `Delete ${channelLabel[channels[0]!]} keys` : 'Delete keys'
+    !limb && !controls.length && channels.length === 1
+      ? `Delete ${channelLabel[channels[0]!]} keys`
+      : 'Delete keys'
   const jointSet = new Set(joints)
   return editClip(id, label, (clip) => {
     if (!clip) throw new Error(`No clip ${id}.`)
@@ -256,6 +351,16 @@ export function deleteClipKeys(
       const targets = outsideRange(clip.limb.targets, 3, start, end)
       if (targets) next.limb = { ...clip.limb, targets }
       else delete next.limb
+    }
+    if (controls.length && clip.controls) {
+      next.controls = { ...clip.controls }
+      for (const control of controls) {
+        const channel = next.controls[control]
+        if (!channel) continue
+        const kept = outsideRange(channel, controlKind(control) === 'rotation' ? 4 : 3, start, end)
+        if (kept) next.controls[control] = kept
+        else delete next.controls[control]
+      }
     }
     return next
   })
@@ -292,7 +397,7 @@ function outsideRange(
 function editClip(
   id: string,
   label: string,
-  edit: (clip: Clip | undefined) => Clip | undefined,
+  edit: (clip: Clip | undefined, doc: DilemmaDocument) => Clip | undefined,
   insertAt?: number,
 ): Command {
   return {
@@ -301,7 +406,7 @@ function editClip(
       const clips = [...doc.clips]
       const index = clips.findIndex((clip) => clip.id === id)
       const previous = clips[index]
-      const next = edit(previous)
+      const next = edit(previous, doc)
       if (next) {
         const character = doc.characters.find((entry) => entry.id === next.characterId)
         if (!character || next.tracks.some(({ joint }) => !character.skeleton.joints[joint])) {

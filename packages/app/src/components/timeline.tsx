@@ -77,8 +77,10 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
       new Set(selection.joints.filter((j) => j.characterId === character?.id).map((j) => j.joint)),
     [selection.joints, character?.id],
   )
-  const lastSelectedJoint = Array.from(selectedJoints).at(-1)
-  const selectedRowIndex = rows.findIndex((row) => row.joint === lastSelectedJoint)
+  const lead = selection.joints.findLast((ref) => ref.characterId === character?.id)
+  const selectedRowIndex = rows.findIndex(
+    (row) => row.joint === lead?.joint && row.control === lead?.control,
+  )
   const rangeRow =
     timelineRange?.clipId === clipId
       ? rows.find((row) => row.id === timelineRange.rowId)
@@ -264,7 +266,7 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
         <div
           role="group"
           aria-label="Timeline controls"
-          className="flex shrink-0 items-center gap-2 border-b border-line p-1"
+          className={`flex shrink-0 items-center gap-2 p-1 ${character ? 'border-b border-line' : ''}`}
           style={{ height: HEADER }}
         >
           <input
@@ -276,7 +278,7 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
             title={`Frame ${frame} of ${end}`}
             aria-label="Current time"
             aria-description="Enter a frame number, seconds like 1s, or a timecode like 00:01:00."
-            className="shrink-0 rounded-md bg-raised px-2 py-1 text-center font-mono tabular-nums text-ink outline-none select-text ring-muted ring-inset focus-visible:ring-1 group-has-[canvas:focus-visible]/timeline:ring-1"
+            className="shrink-0 rounded-md px-2 py-1 text-center font-mono tabular-nums text-ink outline-none select-text ring-muted ring-inset hover:bg-control focus:bg-raised focus-visible:ring-1 group-has-[canvas:focus-visible]/timeline:ring-1"
             style={{ width: `calc(${timecode.length}ch + 1rem)` }}
             onFocus={(event) => {
               setPlaying(false)
@@ -331,6 +333,7 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
         </div>
         <div
           ref={trackList}
+          hidden={!character}
           onScroll={() => paint.current?.()}
           className="min-h-0 flex-1 overflow-y-auto [contain:inline-size] [scrollbar-width:thin]"
           style={{ scrollPaddingTop: TRACK_HEIGHT }}
@@ -366,8 +369,12 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
           <div id="timeline-joint-tracks" role="group" aria-label="Joint tracks" hidden={!expanded}>
             {expanded &&
               rows.slice(1).map((row) => {
-                const joint = row.joint!
-                const selected = selectedJoints.has(joint)
+                const joint = row.joint
+                const selected = row.control
+                  ? selection.joints.some(
+                      (ref) => ref.characterId === character?.id && ref.control === row.control,
+                    )
+                  : joint !== null && selectedJoints.has(joint)
                 return (
                   <button
                     key={row.id}
@@ -380,8 +387,15 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
                     onClick={() => {
                       if (!character) return
                       activateRow(row.id)
-                      selectJoints([{ characterId: character.id, joint }])
-                      if (row.id === 'ik') useUi.getState().setTransformMode('ik')
+                      if (joint === null) return
+                      selectJoints([
+                        {
+                          characterId: character.id,
+                          joint,
+                          ...(row.control && { control: row.control }),
+                        },
+                      ])
+                      if (row.control || row.id === 'ik') useUi.getState().setTransformMode('ik')
                     }}
                     onKeyDown={(event) => handleTimelineKey(event, row.id)}
                   >
@@ -602,8 +616,10 @@ function draw(
   ctx.fillRect(0, HEADER, width, height - HEADER)
   ctx.fillStyle = palette.getPropertyValue('--color-panel')
   ctx.fillRect(0, 0, width, HEADER)
-  ctx.fillStyle = palette.getPropertyValue('--color-line')
-  ctx.fillRect(0, HEADER - 1, width, 1)
+  if (height > HEADER) {
+    ctx.fillStyle = palette.getPropertyValue('--color-line')
+    ctx.fillRect(0, HEADER - 1, width, 1)
+  }
 
   ctx.font = '10px ui-monospace, SF Mono, Menlo, monospace'
   ctx.textAlign = 'center'
@@ -703,7 +719,7 @@ function draw(
     }
   }
 
-  drawRow(rows[0]!, HEADER)
+  if (height > HEADER) drawRow(rows[0]!, HEADER)
   const jointTop = HEADER + TRACK_HEIGHT
   if (height > jointTop && rows.length > 1) {
     ctx.save()
@@ -719,16 +735,23 @@ function draw(
   }
 
   const px = x(frame)
-  ctx.fillStyle = palette.getPropertyValue('--color-ink')
+  const frameLabel = String(frame)
+  const badgeWidth = Math.ceil(ctx.measureText(frameLabel).width) + 8
+  const badgeLeft = Math.max(0, Math.min(px - badgeWidth / 2, width - badgeWidth))
+  ctx.fillStyle = '#fa4c4d'
   ctx.fillRect(px, RULER, 1, height - RULER)
   ctx.beginPath()
-  ctx.moveTo(px - 4, RULER - 8)
-  ctx.lineTo(px + 5, RULER - 8)
-  ctx.lineTo(px + 5, RULER - 4)
+  ctx.roundRect(badgeLeft, 2, badgeWidth, 16, 3)
+  ctx.fill()
+  ctx.beginPath()
+  ctx.moveTo(px - 3, RULER - 5)
+  ctx.lineTo(px + 4, RULER - 5)
   ctx.lineTo(px + 0.5, RULER + 1)
-  ctx.lineTo(px - 4, RULER - 4)
   ctx.closePath()
   ctx.fill()
+  ctx.textAlign = 'center'
+  ctx.fillStyle = '#ffffff'
+  ctx.fillText(frameLabel, badgeLeft + badgeWidth / 2, 6)
 }
 
 function TransportButton(props: {
@@ -741,7 +764,7 @@ function TransportButton(props: {
   return (
     <button
       type="button"
-      className="shell-icon"
+      className="shell-icon rounded-sm"
       disabled={props.disabled}
       onClick={props.onClick}
       aria-label={props.label}

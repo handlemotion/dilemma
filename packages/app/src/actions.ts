@@ -111,6 +111,7 @@ export function openProject(): Promise<void> {
     ui.setPlaying(false)
     ui.setTransformDraft(null)
     ui.setTimelineRange(null)
+    ui.setSelectedContact(null)
     closeRigSetup()
     ui.setWorkArea(null)
     ui.setPreviewFrame(restored.sceneTiming.start)

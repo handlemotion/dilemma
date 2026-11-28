@@ -1,4 +1,10 @@
-import { resetSelection, resetTarget, type ResetKind } from '../animation.ts'
+import {
+  addEffectorContact,
+  pinSelection,
+  resetSelection,
+  resetTarget,
+  type ResetKind,
+} from '../animation.ts'
 import { useEditorState } from '../editor.ts'
 import { ActionIcon, type ActionIconName } from '../icons/action.tsx'
 import { motionTrailTarget } from '../motion-trail.ts'
@@ -35,6 +41,7 @@ export function AnimationToolbar() {
     all: !!reset,
   }
   const canTrail = Boolean(motionTrailTarget(state))
+  const canAddContact = !busy && mode === 'ik' && Boolean(pinSelection(state))
 
   return (
     <div
@@ -75,7 +82,17 @@ export function AnimationToolbar() {
         ))}
       </div>
       <Divider />
-      <PlannedAction label="Add Contact" icon="addContact" />
+      <button
+        type="button"
+        className="shell-icon shell-rail-icon"
+        data-action-group="pose"
+        aria-label="Add Contact"
+        title={canAddContact ? 'Add Contact' : 'Add Contact · Select a hand or foot in Pose mode'}
+        disabled={!canAddContact}
+        onClick={addEffectorContact}
+      >
+        <ActionIcon name="addContact" />
+      </button>
       <Divider />
       <button
         type="button"

@@ -4,9 +4,10 @@
  * rotations as unit quaternions [x, y, z, w]. Key times are integer frames.
  */
 
+import type { Contact } from './contact.ts'
 import type { ControlId, Effector, RigMapping } from './rig.ts'
 
-export const DOCUMENT_VERSION = 5
+export const DOCUMENT_VERSION = 6
 
 export type Vec3 = [number, number, number]
 export type Quat = [number, number, number, number]
@@ -90,6 +91,7 @@ export interface Clip {
   limb?: LimbTrack
   controls?: Partial<Record<ControlId, KeyChannel>>
   pins?: Partial<Record<Effector, EffectorPin>>
+  contacts?: Contact[]
 }
 
 export type SceneTiming = Pick<Clip, 'fps' | 'start' | 'end'>

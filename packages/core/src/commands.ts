@@ -1,3 +1,4 @@
+import { validContacts, type Contact } from './contact.ts'
 import {
   TRANSFORM_CHANNELS,
   validSceneTiming,
@@ -133,6 +134,30 @@ export function setEffectorPin(
   })
 }
 
+export function setContact(target: Clip | string, id: string, contact?: Contact): Command {
+  return editPoseClip(target, contact ? 'Set contact' : 'Delete contact', (clip, character) => {
+    const existing = clip.contacts?.find((entry) => entry.id === id)
+    if (
+      contact &&
+      (contact.id !== id ||
+        (existing?.effector !== contact.effector &&
+          controlJoint(character.skeleton, character.rig, contact.effector) === undefined))
+    ) {
+      throw new Error('Confirm the rig before adding a contact for this control.')
+    }
+    const contacts = (clip.contacts ?? []).filter((entry) => entry.id !== id)
+    if (contact) contacts.push(contact)
+    contacts.sort((a, b) => a.start - b.start)
+    const next = { ...clip, contacts }
+    if (!validContacts(next)) {
+      throw new Error(
+        'Contacts need whole frames within the clip and cannot overlap on the same control.',
+      )
+    }
+    return next
+  })
+}
+
 function editPoseClip(
   target: Clip | string,
   label: string,
@@ -200,6 +225,9 @@ export function setClipTiming(
       throw new Error('Enter whole clip frames with the start at or before the end.')
     if (!Number.isFinite(fps) || fps <= 0) throw new Error('Clip FPS must be greater than zero.')
 
+    if (!validContacts(next)) {
+      throw new Error('The clip range must include all contacts.')
+    }
     const excludesKeys = (channel: KeyChannel | undefined) => {
       const frames = channel?.frames
       return !!frames?.length && (frames[0]! < start || frames[frames.length - 1]! > end)

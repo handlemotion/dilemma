@@ -4,15 +4,25 @@ import {
   controlJoint,
   EFFECTORS,
   isEffector,
+  type Clip,
+  type Contact,
   selectedControl,
   type Character,
   type ControlId,
 } from '@dilemma/core'
-import { selectJoints, toggleEffectorPin } from '../animation.ts'
+import {
+  editEffectorContact,
+  selectJoints,
+  selectedContact,
+  toggleEffectorPin,
+} from '../animation.ts'
 import { useEditorState } from '../editor.ts'
+import { ActionIcon } from '../icons/action.tsx'
 import { Icon } from '../icons/central.tsx'
 import { openRigSetup } from '../rig-setup.ts'
 import { useUi } from '../ui-store.ts'
+import { NumberField } from './number-field.tsx'
+import { contactBounds } from './timeline-contacts.ts'
 
 const groups = [
   { name: 'Body', controls: ['hips', 'chest', 'head'] },
@@ -23,10 +33,12 @@ const groups = [
 export function PoseInspector({ character }: { character: Character }) {
   const { doc, playhead, selection } = useEditorState()
   const drafting = useUi((s) => s.transformDraft !== null)
+  const contactSelection = useUi((s) => s.selectedContact)
   const { skeleton, rig } = character
   const clip = doc.clips.find(
     (item) => item.id === playhead.clipId && item.characterId === character.id,
   )
+  const contact = selectedContact(clip, contactSelection)
   const ref = selection.joints.length === 1 ? selection.joints[0] : undefined
   const selected =
     ref?.characterId === character.id ? selectedControl(skeleton, rig, ref) : undefined
@@ -111,10 +123,83 @@ export function PoseInspector({ character }: { character: Character }) {
           </div>
         )
       })}
+      {clip && contact && <ContactProperties key={contact.id} clip={clip} contact={contact} />}
       {effector && (
         <div role="group" aria-label="Bend direction">
           <h3 className="px-2 pb-0.5 text-[11px] font-medium text-muted">Bend direction</h3>
           {row(bendControl(effector))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function ContactProperties({ clip, contact }: { clip: Clip; contact: Contact }) {
+  const { prop } = contact
+  const bounds = contactBounds(clip, contact)
+  const edit = (changes: Partial<Contact>) =>
+    editEffectorContact(clip.id, contact.id, { ...contact, ...changes })
+
+  return (
+    <section aria-label="Contact properties" className="space-y-2 border-t border-line px-2 py-2">
+      <div className="flex items-center justify-between gap-1">
+        <h3 className="text-[11px] font-medium">
+          {CONTROL_LABELS[contact.effector]} {prop ? 'grip' : 'plant'}
+        </h3>
+        <button
+          type="button"
+          className="shell-icon rounded-sm text-muted hover:text-ink"
+          aria-label="Remove Contact"
+          title="Remove Contact"
+          onClick={() => editEffectorContact(clip.id, contact.id)}
+        >
+          <ActionIcon name="removeContact" />
+        </button>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <span className="text-[11px] text-muted">Start</span>
+          <NumberField
+            label="Contact start frame"
+            appearance="inspector"
+            value={contact.start}
+            min={bounds.start}
+            max={contact.end}
+            onCommit={(start) => edit({ start })}
+          />
+        </div>
+        <div>
+          <span className="text-[11px] text-muted">End</span>
+          <NumberField
+            label="Contact end frame"
+            appearance="inspector"
+            value={contact.end}
+            min={contact.start}
+            max={bounds.end}
+            onCommit={(end) => edit({ end })}
+          />
+        </div>
+      </div>
+      {prop && (
+        <div>
+          <span className="text-[11px] text-muted">Prop position (m)</span>
+          <div className="grid grid-cols-3 gap-1">
+            {(['X', 'Y', 'Z'] as const).map((axis, index) => (
+              <NumberField
+                key={axis}
+                label={`Prop ${axis}`}
+                unit={axis}
+                appearance="inspector"
+                step="any"
+                value={Number(prop.position[index]!.toFixed(4))}
+                onCommit={(value) => {
+                  const position = [...prop.position] as typeof prop.position
+                  position[index] = value
+                  edit({ prop: { ...prop, position } })
+                }}
+              />
+            ))}
+          </div>
         </div>
       )}
     </section>

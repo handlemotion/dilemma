@@ -11,6 +11,14 @@ editor.subscribe((state) => {
   if (ui.rigSetup && !state.doc.characters.some(({ id }) => id === ui.rigSetup?.characterId)) {
     useUi.setState({ rigSetup: null })
   }
+  if (
+    ui.selectedContact &&
+    (state.playhead.clipId !== ui.selectedContact.clipId ||
+      !state.doc.clips
+        .find(({ id }) => id === ui.selectedContact?.clipId)
+        ?.contacts?.some(({ id }) => id === ui.selectedContact?.id))
+  )
+    ui.setSelectedContact(null)
   if (state.doc.sceneTiming !== previous.doc.sceneTiming) {
     const { start, end } = state.doc.sceneTiming
     ui.setPreviewFrame(Math.min(end, Math.max(start, ui.previewFrame)))

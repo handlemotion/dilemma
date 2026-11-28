@@ -22,6 +22,9 @@ import {
 } from '@dilemma/solve'
 import {
   Box3,
+  BoxGeometry,
+  Group,
+  Mesh,
   Color,
   DirectionalLight,
   GridHelper,
@@ -138,6 +141,10 @@ export class Viewport {
   readonly stats = { fps: 0, frameMs: 0 }
   private renderer: WebGLRenderer
   private scene = new Scene()
+  private props = new Group()
+  private propGeometry = new BoxGeometry(0.075, 0.11, 0.075)
+  private propMaterial = new MeshStandardMaterial({ color: '#d0985b', roughness: 0.75 })
+  private propClip: Clip | null = null
   private camera = new PerspectiveCamera(35, 1, 0.01, 1000)
   private grid = new GridHelper(10, 20, '#afb6c3', '#c1c7d2')
   private motionTrail = new MotionTrail()
@@ -179,7 +186,7 @@ export class Viewport {
     key.position.set(3, 6, 4)
     this.scene.add(key)
     this.grid.material.allowOverride = false
-    this.scene.add(this.grid, this.motionTrail.group)
+    this.scene.add(this.grid, this.motionTrail.group, this.props)
 
     this.rig = new Rig(this.camera, canvas, () => this.selectionCenter())
     this.gizmo = new TransformGizmo(this.scene, this.camera, canvas, events)
@@ -210,6 +217,8 @@ export class Viewport {
     for (const entry of this.entries.values()) this.remove(entry)
     this.grid.dispose()
     this.motionTrail.dispose()
+    this.propGeometry.dispose()
+    this.propMaterial.dispose()
     this.clay.dispose()
     this.wireframe.dispose()
     this.renderer.dispose()
@@ -248,6 +257,18 @@ export class Viewport {
     const previous = this.state
     this.state = state
     if (!previous || previous.doc !== state.doc) this.sync(state)
+    const clip = state.doc.clips.find(({ id }) => id === state.playhead.clipId) ?? null
+    if (clip !== this.propClip) {
+      this.propClip = clip
+      this.props.clear()
+      for (const { prop } of clip?.contacts ?? []) {
+        if (!prop) continue
+        const mesh = new Mesh(this.propGeometry, this.propMaterial)
+        mesh.position.fromArray(prop.position)
+        mesh.quaternion.fromArray(prop.rotation)
+        this.props.add(mesh)
+      }
+    }
     if (!previous || previous.selection !== state.selection) {
       this.paintSelection(state)
       this.updateGizmo()
@@ -434,7 +455,10 @@ export class Viewport {
         this.entries.delete(id)
       } else if (next.rig !== entry.character.rig) {
         entry.character = next
-        entry.skeleton.controls.set(compileSkeleton(next.skeleton, next.rig).controls)
+        const compiled = compileSkeleton(next.skeleton, next.rig)
+        entry.skeleton.controls.set(compiled.controls)
+        entry.skeleton.bodyJoints = compiled.bodyJoints
+        entry.pose = createPose(entry.skeleton)
       }
     }
     const added: Entry[] = []

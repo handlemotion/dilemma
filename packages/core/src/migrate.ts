@@ -1,3 +1,4 @@
+import { validContacts, type Contact } from './contact.ts'
 import {
   DEFAULT_SCENE_TIMING,
   DOCUMENT_VERSION,
@@ -40,6 +41,8 @@ const migrations: Record<number, (doc: Record<string, unknown>) => Record<string
   3: (doc) => ({ ...doc, sceneTiming: { ...DEFAULT_SCENE_TIMING } }),
   // Version 5 adds optional rig mappings, control tracks and pins.
   4: (doc) => doc,
+  // Version 6 adds optional contact clips. Whole-clip pins retain their behavior.
+  5: (doc) => doc,
 }
 
 export class DocumentVersionError extends Error {}
@@ -116,6 +119,12 @@ function validateChannel(raw: unknown, width: number, start: number, end: number
   }
   numbers(channel['values'], frames.length * width)
   return frames.length
+}
+
+function validateContactTransform(value: unknown): void {
+  const transform = object(value)
+  numbers(transform['position'], 3)
+  numbers(transform['rotation'], 4)
 }
 
 function validateDocument(doc: Record<string, unknown>): void {
@@ -197,6 +206,19 @@ function validateDocument(doc: Record<string, unknown>): void {
         numbers(pin['position'], 3)
         numbers(pin['rotation'], 4)
       }
+    }
+    if (clip['contacts'] !== undefined) {
+      const contacts = array(clip['contacts'])
+      for (const rawContact of contacts) {
+        const contact = object(rawContact)
+        string(contact['id'])
+        integer(contact['start'])
+        integer(contact['end'])
+        if (!EFFECTORS.some((effector) => effector === contact['effector'])) invalid()
+        validateContactTransform(contact['anchor'])
+        if (contact['prop'] !== undefined) validateContactTransform(contact['prop'])
+      }
+      if (!validContacts({ start, end, contacts: contacts as Contact[] })) invalid()
     }
     if (clip['limb'] !== undefined) {
       const limb = object(clip['limb'])

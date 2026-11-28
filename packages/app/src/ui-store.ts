@@ -116,6 +116,8 @@ interface UiState {
   setWorkArea(workArea: UiState['workArea']): void
   previewFrame: number
   timelineRange: TimelineRange | null
+  selectedContact: { clipId: string; id: string } | null
+  setSelectedContact(contact: UiState['selectedContact']): void
   activeTimelineRow: TimelineRowRef | null
   expandedTimelineCharacterId: string | null
   setActiveTimelineRow(row: TimelineRowRef | null): void
@@ -197,6 +199,8 @@ export const useUi = create<UiState>((set) => ({
   setWorkArea: (workArea) => set({ workArea, playing: false }),
   previewFrame: DEFAULT_SCENE_TIMING.start,
   timelineRange: null,
+  selectedContact: null,
+  setSelectedContact: (selectedContact) => set({ selectedContact }),
   activeTimelineRow: null,
   expandedTimelineCharacterId: null,
   setActiveTimelineRow: (activeTimelineRow) => set({ activeTimelineRow }),

@@ -1,5 +1,7 @@
 import { CONTROL_IDS, EFFECTORS, type PoseKey } from '@dilemma/core'
-import { applyLimb, multiplyQuaternion } from './limb.ts'
+import { sampleContact, blendRotation } from './contacts.ts'
+import { solveBody } from './body.ts'
+import { applyLimb, canSolveLimb, multiplyQuaternion } from './limb.ts'
 import {
   LOCAL_STRIDE,
   WORLD_STRIDE,
@@ -64,6 +66,7 @@ export function solvePose(
     if (edit) pose.local.set(edit, offset)
     else if (channel) sampleChannel(channel, frame, pose.local, offset, i === 0 ? lerp3 : slerp)
   }
+  pose.controlLocal.set(pose.local)
   computeWorld(skeleton, pose)
   pose.ik.tip = -1
   if (preview?.ik) {
@@ -101,30 +104,73 @@ function solveControls(
     pinned,
     ik: { scratch },
   } = pose
+  const { targetWeights, pinWeights, pinTransforms } = pose
   pinned.fill(0)
+  targetWeights.fill(0)
+  pinWeights.fill(0)
+  for (let limb = 0; limb < EFFECTORS.length; limb++) {
+    const index = limb + 3
+    const tip = skeleton.controls[index]!
+    if (tip < 0 || !canSolveLimb(skeleton, pose, tip)) continue
+    const pin = clip?.pins[limb]
+    const contactTrack = clip?.contacts[limb]
+    const pinTransform = pinTransforms[limb]!
+    const weight = contactTrack?.length ? sampleContact(contactTrack, frame, pinTransform) : 0
+    if (pin && weight < 1) {
+      if (!weight) pinTransform.set(pin)
+      else {
+        for (let axis = 0; axis < 3; axis++)
+          pinTransform[axis] = pin[axis]! + weight * (pinTransform[axis]! - pin[axis]!)
+        blendRotation(pinTransform, 3, pin, 3, pinTransform, 3, weight)
+      }
+    }
+    const strength = pin ? 1 : weight
+    pinWeights[limb] = strength
+    pinned[index] = Number(strength === 1)
+    const edit = preview?.controls[index]
+    const channel = clip?.controls[index]
+    const legacy = pose.ik.tip === tip && strength > 0
+    if (!strength && !edit && !channel && !legacy) continue
+    const target = pose.targets[limb]!
+    if (edit) target.set(edit)
+    else if (channel) sampleChannel(channel, frame, target, 0, lerp3)
+    else if (legacy) target.set(pose.ik.target)
+    else worldPoint(pose, tip, target, 0)
+    if (strength > 0) {
+      for (let axis = 0; axis < 3; axis++) {
+        target[axis] =
+          strength === 1
+            ? pinTransform[axis]!
+            : target[axis]! + strength * (pinTransform[axis]! - target[axis]!)
+      }
+    }
+    targetWeights[limb] = 1 + 9_999 * strength ** 2
+  }
+  if (pose.ik.applied && targetWeights.some((weight) => weight > 0)) {
+    const limb = skeleton.controls.indexOf(pose.ik.tip, 3) - 3
+    if (limb >= 0 && limb < EFFECTORS.length && !targetWeights[limb]) {
+      pose.targets[limb]!.set(pose.ik.target)
+      targetWeights[limb] = 1
+    }
+  }
+  solveBody(skeleton, pose, computeWorld)
   for (let limb = 0; limb < EFFECTORS.length; limb++) {
     const index = limb + 3
     const bendIndex = limb + 7
     const tip = skeleton.controls[index]!
     if (tip < 0) continue
     const { effectorTarget: target, effectorPole: pole } = scratch
-    const pin = clip?.pins[limb]
-    const edit = preview?.controls[index]
-    const channel = clip?.controls[index]
+    const strength = pinWeights[limb]!
     const bendEdit = preview?.controls[bendIndex]
     const bendChannel = clip?.controls[bendIndex]
-    if (pin) {
-      pinned[index] = 1
-      for (let axis = 0; axis < 3; axis++) target[axis] = pin[axis]!
-    } else if (edit) target.set(edit)
-    else if (channel) sampleChannel(channel, frame, target, 0, lerp3)
+    if (targetWeights[limb]) target.set(pose.targets[limb]!)
     else if (pose.ik.tip === tip) target.set(pose.ik.target)
     else worldPoint(pose, tip, target, 0)
 
     if (bendEdit) pole.set(bendEdit)
     else if (bendChannel) sampleChannel(bendChannel, frame, pole, 0, lerp3)
 
-    if (pin || edit || channel || bendEdit || bendChannel) {
+    if (targetWeights[limb] || bendEdit || bendChannel) {
       const solved = applyLimb(
         skeleton,
         pose,
@@ -132,12 +178,22 @@ function solveControls(
         target,
         bendEdit || bendChannel ? pole : undefined,
       )
-      if (pin) {
+      if (strength > 0) {
+        const localRotation = tip * LOCAL_STRIDE + 3
         jointRotation(skeleton, pose, skeleton.parents[tip]!, scratch.ancestor)
         for (let axis = 0; axis < 3; axis++) scratch.ancestor[axis] = -scratch.ancestor[axis]!
-        multiplyQuaternion(pose.local, tip * LOCAL_STRIDE + 3, scratch.ancestor, 0, pin, 3)
+        multiplyQuaternion(scratch.swing, 0, scratch.ancestor, 0, pinTransforms[limb]!, 3)
+        blendRotation(
+          pose.local,
+          localRotation,
+          pose.local,
+          localRotation,
+          scratch.swing,
+          0,
+          strength,
+        )
       }
-      if (solved || pin) computeWorld(skeleton, pose)
+      if (solved || strength > 0) computeWorld(skeleton, pose)
     }
     controlPositions.set(target, index * 3)
     if (bendEdit || bendChannel) controlPositions.set(pole, bendIndex * 3)

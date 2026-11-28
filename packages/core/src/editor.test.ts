@@ -6,6 +6,7 @@ import {
   deleteTransformKeys,
   removeCharacter,
   setClipTiming,
+  setContact,
   setControlKey,
   setEffectorPin,
   setRigMapping,
@@ -15,6 +16,7 @@ import {
   setTransformKey,
   setTransformKeys,
 } from './commands.ts'
+import type { Contact } from './contact.ts'
 import { emptyDocument, type Character, type Clip } from './document.ts'
 import { Editor } from './editor.ts'
 import { DocumentVersionError, migrate } from './migrate.ts'
@@ -51,6 +53,42 @@ function mulberry32(seed: number) {
 }
 
 describe('Editor', () => {
+  it('upgrades v5 pins and round-trips an undoable contact range without losing the pins', () => {
+    const editor = new Editor()
+    const mannequin = character('demo', 4)
+    mannequin.rig = { confirmed: true, joints: { hips: 0, leftFoot: 2, rightFoot: 3 } }
+    const initial = clip('walk', mannequin.id)
+    initial.pins = { rightFoot: { position: [0, 6, 0], rotation: [0, 0, 0, 1] } }
+    const pins = initial.pins
+    const old = { ...emptyDocument(), version: 5, characters: [mannequin], clips: [initial] }
+    editor.load(migrate(old))
+    expect(editor.getState().doc.clips[0]).toEqual(initial)
+
+    const plant: Contact = {
+      id: 'left-plant',
+      effector: 'leftFoot',
+      start: 2,
+      end: 5,
+      anchor: { position: [0, 3, 0], rotation: [0, 0, 0, 1] },
+    }
+    editor.run(setContact(initial.id, plant.id, plant))
+    editor.run(setContact(initial.id, plant.id, { ...plant, start: 4, end: 7 }))
+    const revised = editor.getState().doc
+    expect(() =>
+      editor.run(setContact(initial.id, 'overlap', { ...plant, id: 'overlap' })),
+    ).toThrow('cannot overlap')
+    expect(() => editor.run(setClipTiming(initial.id, { end: 6 }))).toThrow('include all contacts')
+    expect(editor.getState().doc).toBe(revised)
+    expect(migrate(JSON.parse(JSON.stringify(revised)))).toEqual(revised)
+
+    editor.undo()
+    expect(editor.getState().doc.clips[0]?.contacts).toEqual([plant])
+    editor.redo()
+    expect(editor.getState().doc).toEqual(revised)
+    editor.run(setContact(initial.id, plant.id))
+    expect(editor.getState().doc.clips[0]).toMatchObject({ pins, contacts: [] })
+  })
+
   it('changes clip timing without moving keys and clamps the playhead through undo and redo', () => {
     const editor = new Editor()
     editor.run(addCharacter(character('a'), [clip('walk', 'a')]))

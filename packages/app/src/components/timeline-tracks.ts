@@ -2,6 +2,10 @@ import {
   CONTROL_IDS,
   CONTROL_LABELS,
   controlJoint,
+  EFFECTORS,
+  handEffector,
+  type Contact,
+  type Effector,
   TRANSFORM_CHANNELS,
   type ControlId,
   type Character,
@@ -17,6 +21,7 @@ export type TimelineRowId =
   | 'preview'
   | 'character'
   | 'ik'
+  | `contact:${Effector}`
   | `joint:${string}`
   | `control:${ControlId}`
 
@@ -27,6 +32,7 @@ export interface TimelineRow {
   control?: ControlId
   depth: number
   frames: readonly number[]
+  contacts?: Contact[]
 }
 
 export const PREVIEW_ROW: TimelineRow = {
@@ -72,8 +78,24 @@ export function timelineRows(character: Character, clip: Clip): TimelineRow[] {
       },
     ]
   })
+  const contacts = EFFECTORS.flatMap((effector): TimelineRow[] => {
+    const entries = clip.contacts?.filter((contact) => contact.effector === effector)
+    if (!entries?.length) return []
+    return [
+      {
+        id: `contact:${effector}`,
+        name: `${CONTROL_LABELS[effector]} ${handEffector(effector) ? 'grips' : 'plants'}`,
+        control: effector,
+        joint: controlJoint(character.skeleton, character.rig, effector) ?? null,
+        depth: 1,
+        frames: [],
+        contacts: entries,
+      },
+    ]
+  })
   const rows: TimelineRow[] = [
     { id: 'character', name: character.name, joint: null, depth: 0, frames: sortedFrames(summary) },
+    ...contacts,
     ...controls,
   ]
   if (limb && tip) {

@@ -141,6 +141,7 @@ const glyphs = {
       <circle cx="4.75" cy="12.25" r="1.75" fill="currentColor" stroke="none" />
     </>
   ),
+  removeContact: <path d="m6 6 8 8m0-8-8 8" />,
   motionTrails: (
     <>
       <path d="M3.5 14.75c1.25-7.5 3.75-9.5 6.5-6.75 2.25 2.25 4.75 4 6.5-3.5" />

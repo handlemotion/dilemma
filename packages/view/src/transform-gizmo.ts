@@ -150,7 +150,7 @@ export class TransformGizmo {
       this.parentInverse.invert()
     }
 
-    const source = this.control ? pose.local : pose.authored
+    const source = this.control ? pose.controlLocal : pose.authored
     this.localPosition.fromArray(source, localOffset)
     this.localRotation.fromArray(source, localOffset + 3)
     this.localScale.fromArray(source, localOffset + 7)

@@ -115,7 +115,7 @@ export function applyLimb(
   return true
 }
 
-function toParentSpace(point: Float64Array, world: Float64Array, o: number): boolean {
+export function toParentSpace(point: Float64Array, world: Float64Array, o: number): boolean {
   const ax = world[o]!,
     ay = world[o + 1]!,
     az = world[o + 2]!
@@ -178,7 +178,7 @@ function fromTo(out: Float64Array, a: Float64Array, b: Float64Array, normal: Flo
   out[3] = Math.cos(half)
 }
 
-function rotate(v: Float64Array, q: Float64Array, o = 0, sign = 1): void {
+export function rotate(v: Float64Array, q: Float64Array, o = 0, sign = 1): void {
   const x = q[o]! * sign,
     y = q[o + 1]! * sign,
     z = q[o + 2]! * sign,

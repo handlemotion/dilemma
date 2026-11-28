@@ -2,6 +2,12 @@ import {
   addClip,
   CONTROL_IDS,
   controlKind,
+  contactAt,
+  handEffector,
+  setContact,
+  type Contact,
+  type Character,
+  type Effector,
   isEffector,
   selectedControl,
   setControlKey,
@@ -37,6 +43,10 @@ import { editor } from './editor.ts'
 import { useUi, type TransformDraft } from './ui-store.ts'
 
 export function selectJoints(joints: JointRef[]): void {
+  const ui = useUi.getState()
+  const contact = selectedContact(activeClip(), ui.selectedContact)
+  if (contact && (joints.length !== 1 || joints[0]?.control !== contact.effector))
+    ui.setSelectedContact(null)
   const first = joints[0]
   if (first && joints.every((joint) => joint.characterId === first.characterId)) {
     const { doc, playhead } = editor.getState()
@@ -134,7 +144,9 @@ export function resetTarget(
   const control = selectedControl(character.skeleton, character.rig, lead)
   if (
     !control ||
-    (isEffector(control) && clip?.characterId === character.id && clip.pins?.[control])
+    (isEffector(control) &&
+      clip?.characterId === character.id &&
+      effectorHeld(clip, control, playhead.frame))
   )
     return undefined
   const rotation = controlKind(control) === 'rotation'
@@ -210,15 +222,16 @@ function stageTransforms(edits: readonly { joint: JointRef; key: PoseKey }[]): v
   ui.setUnkeyedTransforms([...remaining, ...edits])
 }
 
-export function pinSelection() {
-  const { doc, selection } = editor.getState()
+export function pinSelection(state = editor.getState()) {
+  const { doc, selection, playhead } = state
   const selected = selection.joints.length === 1 ? selection.joints[0] : undefined
   const character = selected && findCharacter(doc, selected.characterId)
   if (!selected || !character) return undefined
   const control = selectedControl(character.skeleton, character.rig, selected)
   if (!control || !isEffector(control)) return undefined
-  const active = activeClip()
-  const clip = active?.characterId === character.id ? active : undefined
+  const clip = doc.clips.find(
+    ({ id, characterId }) => id === playhead.clipId && characterId === character.id,
+  )
   return { character, selected, control, clip, pinned: !!clip?.pins?.[control] }
 }
 
@@ -234,27 +247,8 @@ export function toggleEffectorPin(): void {
   const target = clip?.id ?? blankClip(character.id)
   let pin: EffectorPin | undefined
   if (!pinned) {
-    const skeleton = compileSkeleton(character.skeleton, character.rig)
-    const pose = createPose(skeleton)
-    const edits = ui.unkeyedTransforms
-      .filter(({ joint }) => joint.characterId === character.id)
-      .map(({ joint, key }) => ({ joint: joint.joint, key }))
-    solvePose(
-      skeleton,
-      clip ? compileClip(clip, skeleton.count) : null,
-      frame,
-      pose,
-      edits.length ? compilePosePreview(skeleton.count, edits) : undefined,
-    )
-    if (!canSolveLimb(skeleton, pose, selected.joint)) {
-      ui.setError('This limb cannot be pinned in the current pose.')
-      return
-    }
-    const position: EffectorPin['position'] = [0, 0, 0]
-    const rotation = new Float64Array(4)
-    jointPosition(pose, selected.joint, position)
-    jointRotation(skeleton, pose, selected.joint, rotation)
-    pin = { position, rotation: [rotation[0]!, rotation[1]!, rotation[2]!, rotation[3]!] }
+    pin = captureEffector(character, selected, clip, frame)
+    if (!pin) return
   }
   const remaining = ui.unkeyedTransforms.filter(
     ({ joint, key }) =>
@@ -263,6 +257,93 @@ export function toggleEffectorPin(): void {
   editor.run(setEffectorPin(target, control, pin))
   if (typeof target !== 'string') editor.setPlayhead({ clipId: target.id, frame })
   if (remaining.length) ui.setUnkeyedTransforms(remaining)
+}
+
+function captureEffector(
+  character: Character,
+  selected: JointRef,
+  clip: Clip | undefined,
+  frame: number,
+): EffectorPin | undefined {
+  const ui = useUi.getState()
+  const skeleton = compileSkeleton(character.skeleton, character.rig)
+  const pose = createPose(skeleton)
+  const edits =
+    frame === keyFrame(selected)
+      ? ui.unkeyedTransforms
+          .filter(({ joint }) => joint.characterId === character.id)
+          .map(({ joint, key }) => ({ joint: joint.joint, key }))
+      : []
+  solvePose(
+    skeleton,
+    clip ? compileClip(clip, skeleton.count) : null,
+    frame,
+    pose,
+    edits.length ? compilePosePreview(skeleton.count, edits) : undefined,
+  )
+  if (!canSolveLimb(skeleton, pose, selected.joint)) {
+    ui.setError('This limb cannot be held in the current pose.')
+    return
+  }
+  const position: EffectorPin['position'] = [0, 0, 0]
+  const rotation = new Float64Array(4)
+  jointPosition(pose, selected.joint, position)
+  jointRotation(skeleton, pose, selected.joint, rotation)
+  return { position, rotation: [rotation[0]!, rotation[1]!, rotation[2]!, rotation[3]!] }
+}
+
+export function addEffectorContact(): void {
+  const selection = pinSelection()
+  const ui = useUi.getState()
+  if (!selection || ui.rigSetup || ui.transformDraft) return
+  const { character, selected, control, clip } = selection
+  const target = clip ?? blankClip(character.id)
+  const frame = keyFrame(selected)
+  const range = ui.timelineRange?.clipId === target.id ? ui.timelineRange : null
+  const start = range ? Math.min(range.anchor, range.edge) : frame
+  const end = range ? Math.max(range.anchor, range.edge) : Math.min(frame + 11, target.end)
+  const pose = captureEffector(character, selected, clip, start)
+  if (!pose) return
+  const id = crypto.randomUUID()
+  const contact: Contact = { id, effector: control, start, end, anchor: pose }
+  if (handEffector(control)) {
+    const [x, y, z] = pose.position
+    contact.prop = { position: [x, y - 0.065, z], rotation: [0, 0, 0, 1] }
+    contact.anchor = { position: [0, 0.065, 0], rotation: pose.rotation }
+  }
+  try {
+    ui.setPlaying(false)
+    editor.run(setContact(clip?.id ?? target, id, contact))
+    editor.setPlayhead({ clipId: target.id, frame: start })
+    ui.setTimelineRange(null)
+    ui.setExpandedTimelineCharacter(character.id)
+    ui.setActiveTimelineRow({ clipId: target.id, rowId: `contact:${control}` })
+    ui.setSelectedContact({ clipId: target.id, id })
+  } catch (error) {
+    ui.setError(error instanceof Error ? error.message : String(error))
+  }
+}
+
+export function editEffectorContact(clipId: string, id: string, contact?: Contact): void {
+  const ui = useUi.getState()
+  try {
+    ui.setPlaying(false)
+    editor.run(setContact(clipId, id, contact))
+  } catch (error) {
+    ui.setError(error instanceof Error ? error.message : String(error))
+  }
+}
+
+export function selectedContact(
+  clip: Clip | undefined,
+  selection: ReturnType<typeof useUi.getState>['selectedContact'],
+) {
+  if (!clip || selection?.clipId !== clip.id) return undefined
+  return clip.contacts?.find(({ id }) => id === selection.id)
+}
+
+export function effectorHeld(clip: Clip | undefined, effector: Effector, frame: number): boolean {
+  return !!clip?.pins?.[effector] || !!contactAt(clip, effector, frame)
 }
 
 export function keySelection(): void {
@@ -284,7 +365,7 @@ export function keySelection(): void {
   if (ui.transformMode === 'ik') {
     if (selection.joints.length !== 1) return
     const control = selectedControl(character.skeleton, character.rig, lead)
-    if (control && isEffector(control) && clip?.pins?.[control]) return
+    if (control && isEffector(control) && effectorHeld(clip, control, frame)) return
     if (
       !control &&
       (character.rig?.confirmed || compiled?.limb) &&
@@ -306,7 +387,7 @@ export function keySelection(): void {
           ? lead.joint * LOCAL_STRIDE
           : CONTROL_IDS.indexOf(control) * 3
       const source =
-        kind === 'translation' || kind === 'rotation' ? pose.local : pose.controlPositions
+        kind === 'translation' || kind === 'rotation' ? pose.controlLocal : pose.controlPositions
       const value: ControlKey['value'] =
         kind === 'rotation'
           ? [source[offset + 3]!, source[offset + 4]!, source[offset + 5]!, source[offset + 6]!]
@@ -399,6 +480,12 @@ function keyDeletion() {
 }
 
 export function deleteKeys(): boolean {
+  const clip = activeClip()
+  const contact = selectedContact(clip, useUi.getState().selectedContact)
+  if (clip && contact) {
+    editEffectorContact(clip.id, contact.id)
+    return true
+  }
   const target = keyDeletion()
   if (!target) return false
   const ui = useUi.getState()

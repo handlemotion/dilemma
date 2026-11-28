@@ -1,5 +1,12 @@
 import { Select } from '@base-ui/react/select'
-import { findCharacter, type Clip, type DilemmaDocument } from '@dilemma/core'
+import {
+  CONTROL_LABELS,
+  findCharacter,
+  handEffector,
+  type Clip,
+  type Contact,
+  type DilemmaDocument,
+} from '@dilemma/core'
 import {
   useEffect,
   useLayoutEffect,
@@ -8,7 +15,7 @@ import {
   type KeyboardEvent as ReactKeyEvent,
   type ReactNode,
 } from 'react'
-import { selectJoints } from '../animation.ts'
+import { editEffectorContact, selectJoints, selectedContact } from '../animation.ts'
 import { editor, useEditorState } from '../editor.ts'
 import { Icon } from '../icons/central.tsx'
 import { resolveWorkArea, useUi, type TimelineRange } from '../ui-store.ts'
@@ -21,6 +28,7 @@ import {
   type TimelineRow,
   type TimelineRowId,
 } from './timeline-tracks.ts'
+import { dragContact, type ContactDragMode } from './timeline-contacts.ts'
 import { formatTimelineTime, parseTimelineTime } from './timeline-timecode.ts'
 
 const PAD = 6
@@ -44,6 +52,7 @@ type Drag = { pointer: number; anchor: number } & (
       moved: boolean
     }
   | { mode: 'scrub' }
+  | { mode: 'contact'; action: ContactDragMode; contact: Contact; edge: number }
   | { mode: 'start' | 'end' | 'move'; workStart: number; workEnd: number }
 )
 
@@ -55,6 +64,8 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
   const character = clip ? findCharacter(doc, clip.characterId) : undefined
   const expanded = useUi((s) => s.expandedTimelineCharacterId === character?.id)
   const activeRow = useUi((s) => s.activeTimelineRow)
+  const contactSelection = useUi((s) => s.selectedContact)
+  const selected = selectedContact(clip ?? undefined, contactSelection)
   const canvas = useRef<HTMLCanvasElement>(null)
   const timecodeField = useRef<HTMLInputElement>(null)
   const trackList = useRef<HTMLDivElement>(null)
@@ -78,8 +89,10 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
     [selection.joints, character?.id],
   )
   const lead = selection.joints.findLast((ref) => ref.characterId === character?.id)
-  const selectedRowIndex = rows.findIndex(
-    (row) => row.joint === lead?.joint && row.control === lead?.control,
+  const selectedRowIndex = rows.findIndex((row) =>
+    row.contacts
+      ? row.control === selected?.effector
+      : row.joint === lead?.joint && row.control === lead?.control,
   )
   const rangeRow =
     timelineRange?.clipId === clipId
@@ -112,10 +125,17 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
       const ui = useUi.getState()
       if (ui.transformDraft || ui.viewportMarquee) return
       const drag = gesture.current
-      if (drag?.mode !== 'select' && ui.timelineRange?.clipId !== clipId) return
+      if (
+        drag?.mode !== 'select' &&
+        drag?.mode !== 'contact' &&
+        ui.timelineRange?.clipId !== clipId &&
+        ui.selectedContact?.clipId !== clipId
+      )
+        return
       event.preventDefault()
       ui.setTimelineRange(null)
-      if (drag?.mode === 'select') {
+      ui.setSelectedContact(null)
+      if (drag?.mode === 'select' || drag?.mode === 'contact') {
         gesture.current = null
         const el = canvas.current
         if (el?.hasPointerCapture(drag.pointer)) el.releasePointerCapture(drag.pointer)
@@ -138,7 +158,12 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
   useLayoutEffect(() => {
     const el = canvas.current
     if (!el) return
-    paint.current = () =>
+    paint.current = () => {
+      const drag = gesture.current
+      const preview =
+        clip && drag?.mode === 'contact'
+          ? dragContact(clip, drag.contact, drag.action, drag.edge - drag.anchor)
+          : undefined
       draw(
         el,
         start,
@@ -150,12 +175,15 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
         workStart,
         workEnd,
         trackList.current?.scrollTop ?? 0,
+        selected?.id,
+        preview,
       )
+    }
     paint.current()
     return () => {
       paint.current = null
     }
-  }, [start, end, frame, rows, selectedJoints, range, workStart, workEnd])
+  }, [clip, start, end, frame, rows, selectedJoints, range, workStart, workEnd, selected?.id])
 
   useEffect(() => {
     const redraw = () => paint.current?.()
@@ -191,6 +219,40 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
       }
     }
     return nearest
+  }
+
+  function contactHit(row: TimelineRow | undefined, clientX: number, rect: DOMRect) {
+    if (!row?.contacts) return undefined
+    const x = (value: number) =>
+      rect.left +
+      PAD +
+      ((value - start) / Math.max(1, end - start)) * Math.max(1, rect.width - PAD * 2)
+    for (const contact of row.contacts) {
+      const left = x(contact.start)
+      const right = Math.max(left + 6, x(contact.end))
+      if (clientX < left - 2 || clientX > right + 2) continue
+      const edge = Math.min((right - left) / 3, 6)
+      const action: ContactDragMode =
+        clientX < left + edge && contact.start !== contact.end
+          ? 'start'
+          : clientX > right - edge
+            ? 'end'
+            : 'move'
+      return { contact, action }
+    }
+    return undefined
+  }
+
+  function selectTrackedContact(contact: Contact, row: TimelineRow) {
+    if (!clip || !character) return
+    if (row.joint !== null) {
+      selectJoints([{ characterId: character.id, joint: row.joint, control: contact.effector }])
+      useUi.getState().setTransformMode('ik')
+    }
+    const ui = useUi.getState()
+    ui.setTimelineRange(null)
+    ui.setSelectedContact({ clipId: clip.id, id: contact.id })
+    activateRow(row.id)
   }
 
   function modeAt(clientX: number, clientY: number, rect: DOMRect) {
@@ -236,6 +298,12 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
     event.preventDefault()
     const rowRange = range?.rowId === rowId ? range : null
     const offset = event.key === 'ArrowLeft' ? -1 : 1
+    if (clip && selected && event.altKey) {
+      const moved = dragContact(clip, selected, 'move', offset)
+      if (moved.start !== selected.start) editEffectorContact(clip.id, moved.id, moved)
+      return
+    }
+    if (event.shiftKey) useUi.getState().setSelectedContact(null)
     const next = clamp((event.shiftKey && rowRange ? rowRange.edge : frame) + offset)
     if (event.shiftKey) {
       activateRow(rowId)
@@ -248,6 +316,7 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
     const ui = useUi.getState()
     if (expanded) {
       if (rangeRow?.joint != null) ui.setTimelineRange(null)
+      ui.setSelectedContact(null)
       activateRow(summary.id)
     }
     ui.setExpandedTimelineCharacter(expanded ? null : character.id)
@@ -259,6 +328,9 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
         ? ` ${rangeRow.name} key selected at frame ${range.anchor}.`
         : ` ${rangeRow.name || 'Preview'} range, frames ${Math.min(range.anchor, range.edge)} to ${Math.max(range.anchor, range.edge)}.`
       : ''
+  const contactDescription = selected
+    ? ` ${CONTROL_LABELS[selected.effector]} contact, frames ${selected.start} to ${selected.end}. Alt and arrows to move. Delete to remove.`
+    : ''
 
   return (
     <div className="group/timeline grid h-full grid-cols-[max-content_minmax(0,1fr)] overflow-hidden border-t border-line bg-panel">
@@ -370,11 +442,13 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
             {expanded &&
               rows.slice(1).map((row) => {
                 const joint = row.joint
-                const selected = row.control
-                  ? selection.joints.some(
-                      (ref) => ref.characterId === character?.id && ref.control === row.control,
-                    )
-                  : joint !== null && selectedJoints.has(joint)
+                const rowSelected = row.contacts
+                  ? row.control === selected?.effector
+                  : row.control
+                    ? selection.joints.some(
+                        (ref) => ref.characterId === character?.id && ref.control === row.control,
+                      )
+                    : joint !== null && selectedJoints.has(joint)
                 return (
                   <button
                     key={row.id}
@@ -382,10 +456,20 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
                     className="selection-tint relative isolate block w-full truncate border-t border-line pr-1 text-left text-muted hover:bg-control hover:text-ink"
                     style={{ height: TRACK_HEIGHT, paddingLeft: 18 + Math.min(10, row.depth) * 10 }}
                     data-timeline-track
-                    aria-pressed={selected}
+                    aria-pressed={rowSelected}
+                    data-tinted={row.contacts && rowSelected ? '' : undefined}
                     title={row.name}
                     onClick={() => {
                       if (!character) return
+                      const contact =
+                        row.contacts?.find((entry) => frame >= entry.start && frame <= entry.end) ??
+                        row.contacts?.[0]
+                      if (contact) {
+                        selectTrackedContact(contact, row)
+                        seek(contact.start)
+                        return
+                      }
+                      useUi.getState().setSelectedContact(null)
                       activateRow(row.id)
                       if (joint === null) return
                       selectJoints([
@@ -410,7 +494,7 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
         ref={canvas}
         tabIndex={0}
         aria-label="Timeline frames"
-        aria-description={`Frame ${frame}.${rangeDescription} Click a key and press Delete to remove it. Use arrows to seek, Shift and arrows to select, comma and period to jump between keys, or brackets to set work area bounds.`}
+        aria-description={`Frame ${frame}.${rangeDescription}${contactDescription} Click a key and press Delete to remove it. Use arrows to seek, Shift and arrows to select, comma and period to jump between keys, or brackets to set work area bounds.`}
         className="block h-full min-h-0 w-full touch-none cursor-crosshair bg-timeline outline-none"
         onKeyDown={(e) => handleTimelineKey(e, keyboardRow.id)}
         onWheel={(e) => {
@@ -432,6 +516,17 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
             trackList.current?.scrollTop ?? 0,
           )
           const pointer = e.pointerId
+          const hit = contactHit(row, e.clientX, rect)
+          if (hit && row && clip) {
+            gesture.current = { pointer, anchor, mode: 'contact', edge: anchor, ...hit }
+            selectTrackedContact(hit.contact, row)
+            seek(Math.min(hit.contact.end, Math.max(hit.contact.start, anchor)))
+            e.currentTarget.style.cursor = cursorFor(hit.action, true)
+            e.currentTarget.setPointerCapture(pointer)
+            paint.current?.()
+            return
+          }
+          useUi.getState().setSelectedContact(null)
           if (mode === 'select' && row) {
             gesture.current = {
               pointer,
@@ -459,13 +554,25 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
           const drag = gesture.current
           const rect = e.currentTarget.getBoundingClientRect()
           if (!drag) {
-            e.currentTarget.style.cursor = cursorFor(modeAt(e.clientX, e.clientY, rect))
+            const row = timelineRowAt(
+              rows,
+              e.clientY - rect.top - HEADER,
+              trackList.current?.scrollTop ?? 0,
+            )
+            const hit = contactHit(row, e.clientX, rect)
+            e.currentTarget.style.cursor = cursorFor(
+              hit?.action ?? modeAt(e.clientX, e.clientY, rect),
+            )
             return
           }
           if (drag.pointer !== e.pointerId) return
           const edge = frameAt(e.clientX, rect)
           const setWorkArea = useUi.getState().setWorkArea
           switch (drag.mode) {
+            case 'contact':
+              drag.edge = edge
+              paint.current?.()
+              break
             case 'select':
               drag.moved ||= Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 4
               if (drag.moved) selectRange(drag.rowId, drag.anchor, edge)
@@ -491,7 +598,22 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
         }}
         onPointerUp={(e) => {
           const drag = gesture.current
-          if (drag?.mode !== 'select' || drag.pointer !== e.pointerId) return
+          if (!drag || drag.pointer !== e.pointerId) return
+          if (drag.mode === 'contact' && clip) {
+            gesture.current = null
+            const edge = frameAt(e.clientX, e.currentTarget.getBoundingClientRect())
+            const original = clip.contacts?.find(({ id }) => id === drag.contact.id)
+            if (original === drag.contact) {
+              const next = dragContact(clip, original, drag.action, edge - drag.anchor)
+              if (next.start !== original.start || next.end !== original.end) {
+                editEffectorContact(clip.id, original.id, next)
+                seek(Math.min(next.end, Math.max(next.start, frame)))
+              }
+            }
+            paint.current?.()
+            return
+          }
+          if (drag.mode !== 'select') return
           const moved = drag.moved || Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 4
           if (!moved && drag.keyFrame !== undefined) {
             useUi.getState().setTimelineRange({
@@ -518,7 +640,10 @@ function TimelineContent({ doc, clip }: { doc: DilemmaDocument; clip: Clip | nul
         }}
         title={`Work area ${workStart}–${workEnd}. Drag its handles to trim or double-click to reset.`}
         onLostPointerCapture={(e) => {
-          if (gesture.current?.pointer === e.pointerId) gesture.current = null
+          if (gesture.current?.pointer === e.pointerId) {
+            gesture.current = null
+            paint.current?.()
+          }
           e.currentTarget.style.cursor = cursorFor(
             modeAt(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect()),
           )
@@ -590,6 +715,8 @@ function draw(
   workStart: number,
   workEnd: number,
   scrollTop: number,
+  selectedContactId: string | undefined,
+  preview: Contact | undefined,
 ): void {
   const dpr = window.devicePixelRatio
   const width = el.clientWidth
@@ -681,10 +808,38 @@ function draw(
     }
     ctx.fill()
 
+    for (const contact of row.contacts ?? []) {
+      const span = preview?.id === contact.id ? preview : contact
+      const left = x(span.start)
+      const right = Math.max(left + 6, x(span.end))
+      const barTop = top + 7
+      const barHeight = TRACK_HEIGHT - 14
+      ctx.fillStyle = '#b5ded3'
+      ctx.beginPath()
+      ctx.roundRect(left, barTop, right - left, barHeight, 3)
+      ctx.fill()
+      ctx.fillStyle = '#428073'
+      ctx.fillRect(left + 1, barTop + 5, 2, barHeight - 10)
+      ctx.fillRect(right - 3, barTop + 5, 2, barHeight - 10)
+      if (right - left >= 44) {
+        ctx.fillStyle = '#183c34'
+        ctx.textAlign = 'left'
+        ctx.fillText(handEffector(contact.effector) ? 'Grip' : 'Plant', left + 7, mid - 6)
+      }
+      if (selectedContactId === contact.id) {
+        ctx.save()
+        ctx.globalCompositeOperation = 'multiply'
+        ctx.globalAlpha = selectionOpacity
+        ctx.fillStyle = blue
+        ctx.fill()
+        ctx.restore()
+      }
+    }
+
     const selected =
       row.id === 'character'
         ? rows.length === 1 && selectedJoints.size > 0
-        : row.joint !== null && selectedJoints.has(row.joint)
+        : !row.contacts && row.joint !== null && selectedJoints.has(row.joint)
     const selectedRange = range?.rowId === row.id ? range : null
     if (selected) {
       ctx.save()
